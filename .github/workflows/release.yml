@@ -58,11 +58,11 @@ jobs:
         uses: docker://mirqqq/amiga-development:v0.4
         with:
           args: >
-            /bin/sh -c "cmake -B game-build -S game
+            /bin/sh -c "cmake -B /github/workspace/game-build -S game
             -DVSCODE_AMIGA_EXTENSION_PATH=$EXT_PATH
-            -DCMAKE_TOOLCHAIN_FILE=AmigaCMakeCrossToolchains/m68k-bartman.cmake
+            -DCMAKE_TOOLCHAIN_FILE=/github/workspace/AmigaCMakeCrossToolchains/m68k-bartman.cmake
             -DM68K_CPU=68000 &&
-            cmake --build game-build -j 6"
+            cmake --build /github/workspace/game-build -j 6"
 
       - name: Assemble dist folder
         run: |
