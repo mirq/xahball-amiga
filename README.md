@@ -1,7 +1,7 @@
 # XAHBall — a HaxBall clone for Amiga 500
 
 Top-down 2D football for the classic Amiga, built with
-[ACE (Amiga C Engine)](https://github.com/AmigaPorts/ACE) by mirq/approxit.
+[ACE (Amiga C Engine)](https://github.com/AmigaPorts/ACE) by mirq.
 
 ![screen](https://img.shields.io/badge/target-Amiga%20500%20(68000%2C%201MB)-orange)
 
