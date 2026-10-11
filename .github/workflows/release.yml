@@ -39,7 +39,7 @@ jobs:
 
       - name: Download Bartman amiga-debug extension (toolchain + elf2hunk)
         run: |
-          gh release download "$AMIGA_DEBUG_VER" -R bartmanabyss/amiga-debug -p '*.vsix' -O toolchain.vsix
+          gh release download "$AMIGA_DEBUG_VER" -R BartmanAbyss/vscode-amiga-debug -p '*.vsix' -O toolchain.vsix
           unzip -q toolchain.vsix -d amiga-ext
           EXT="$PWD/amiga-ext/extension"
           test -x "$EXT/bin/linux/opt/bin/m68k-amiga-elf-gcc"
