@@ -1,0 +1,5 @@
+game-build/
+build-autotest/
+dist/
+zcode/
+.zcode/

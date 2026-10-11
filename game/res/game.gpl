@@ -1,0 +1,20 @@
+GIMP Palette
+Name: XAHBall
+Columns: 4
+#
+  0   0   0	 0 black
+255 255 255	 1 white
+119 136  85	 2 pitch
+ 68  85  51	 3 stadium
+238  17   0	 4 kitA-fill
+ 17 136 238	 5 kitB-fill
+102 102 102	 6 hud-gray
+255 170   0	 7 amber
+255   0   0	 8 post-red
+187 136 204	 9 band1
+119 170  68	10 band2
+ 68 170 119	11 band3
+ 34 204 238	12 accent
+ 17  17  17	13 gray-d
+136 136 136	14 gray-l
+ 34  34  34	15 dark

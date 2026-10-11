@@ -1,0 +1,28 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"name": "XAHBall - Amiga 500",
+			"type": "amiga",
+			"request": "launch",
+			"config": "A500",
+			"program": "${workspaceFolder}/game-build/xahball",
+			"kickstart": "/home/mirek/amiga/kick/kick13.rom",
+			"chipmem": "512k",
+			"slowmem": "512k",
+			"fastmem": "0",
+			"emuargs": [],
+			"internalConsoleOptions": "openOnSessionStart"
+		},
+		{
+			"name": "XAHBall - Amiga 1200",
+			"type": "amiga",
+			"request": "launch",
+			"config": "A1200",
+			"program": "${workspaceFolder}/game-build/xahball",
+			"kickstart": "/home/mirek/Amiberry/roms/kick31.rom",
+			"emuargs": [],
+			"internalConsoleOptions": "openOnSessionStart"
+		}
+	]
+}

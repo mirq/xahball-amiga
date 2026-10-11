@@ -1,0 +1,33 @@
+# Classic Amiga 500 test environment for the isolated DevBench MCP instance.
+
+[fs-uae]
+
+kickstart_file = /home/mirek/amiga/kick/kick13.rom
+
+amiga_model = A500
+cpu = 68000
+chip_memory = 512
+slow_memory = 512
+fast_memory = 0
+
+# Silence the emulated empty-drive click.
+floppy_drive_volume = 0
+
+# Minimal Bartman boot volume. Its startup-sequence runs DH1:a.exe.
+hard_drive_0 = /home/mirek/amiga-xahball/tools/dh0-test
+hard_drive_0_label = System
+hard_drive_1 = /home/mirek/Amiberry/share/Dev
+hard_drive_1_label = Dev
+
+
+window_width = 1280
+window_height = 520
+fullscreen = 0
+mouse_integration = 1
+automatic_input_grab = 0
+initial_input_grab = 0
+cursor_integration = 1
+window_width = 1280
+window_height = 520
+joystick_port_1_mode = joy
+joystick_port_1 = /dev/input/js0
