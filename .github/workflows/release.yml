@@ -1,0 +1,120 @@
+# XAHBall release build: cross-compiles the m68k binary with the Bartman GCC
+# toolchain (from the amiga-debug VSCode extension), converts assets with the
+# ACE host tools, packs an LHA + ZIP and publishes them.
+#
+# Triggers:
+#  - every push to main            -> build + artifact
+#  - tags v*                       -> build + artifact + GitHub release
+#  - workflow_dispatch (manual)    -> build + artifact
+#  - FTP upload happens only when FTP_HOST/FTP_USER/FTP_PASS secrets are set.
+#
+# Pinned dependencies (bump deliberately):
+#  - amiga-debug extension 1.8.2 (compiler toolchain + elf2hunk)
+#  - ACE @ 1d09ead6dec16eb343a1677eadd25862a20171e8 (matches local dev clone)
+
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ACE_PIN: 1d09ead6dec16eb343a1677eadd25862a20171e8
+      AMIGA_DEBUG_VER: 1.8.2
+      FTP_HOST: ${{ secrets.FTP_HOST }}
+      FTP_USER: ${{ secrets.FTP_USER }}
+      FTP_PASS: ${{ secrets.FTP_PASS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential unzip lhasa
+
+      - name: Download Bartman amiga-debug extension (toolchain + elf2hunk)
+        run: |
+          gh release download "$AMIGA_DEBUG_VER" -R bartmanabyss/amiga-debug -p '*.vsix' -O toolchain.vsix
+          unzip -q toolchain.vsix -d amiga-ext
+          EXT="$PWD/amiga-ext/extension"
+          test -x "$EXT/bin/linux/opt/bin/m68k-amiga-elf-gcc"
+          test -x "$EXT/bin/linux/elf2hunk"
+          echo "EXT_PATH=$EXT" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Fetch ACE engine (replaces the dev-only symlink)
+        run: |
+          rm game/deps/ace
+          git clone --depth 1 https://github.com/AmigaPorts/ACE game/deps/ace
+          git -C game/deps/ace checkout "$ACE_PIN"
+
+      - name: Build ACE host asset tools
+        run: |
+          cmake -S game/deps/ace/tools -B game/deps/ace/tools/build \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build game/deps/ace/tools/build -j 4
+
+      - name: Build LHa packer (lhasa can only extract)
+        run: |
+          git clone --depth 1 https://github.com/jca02266/lha lha-src
+          cd lha-src
+          ./configure --prefix="$PWD/install" > /dev/null
+          make -j 4 > /dev/null
+          make install
+          echo "LHA=$PWD/install/bin/lha" >> "$GITHUB_ENV"
+
+      - name: Configure game (m68k cross build)
+        run: |
+          cmake -B build -S game \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/AmigaCMakeCrossToolchains/m68k-bartman.cmake" \
+            -DVSCODE_AMIGA_EXTENSION_PATH="$EXT_PATH" \
+            -DM68K_CPU=68000
+
+      - name: Build game + convert assets
+        run: cmake --build build -j 4
+
+      - name: Assemble dist folder
+        run: |
+          mkdir -p out/xahball
+          cp -r build/dist/. out/xahball/
+          cp tools/dist-README.txt out/xahball/README-INSTALL.txt
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+
+      - name: Pack LHA (verified with lhasa) and ZIP
+        run: |
+          cd out
+          "$LHA" a xahball.lha xahball > /dev/null
+          lhasa t xahball.lha
+          zip -rq xahball.zip xahball
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xahball-${{ env.SHORT_SHA }}
+          path: |
+            out/xahball.lha
+            out/xahball.zip
+
+      - name: Attach to GitHub release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/xahball.lha
+            out/xahball.zip
+
+      - name: Push to FTP (only when secrets are configured)
+        if: ${{ env.FTP_HOST != '' }}
+        run: |
+          for f in out/xahball.lha out/xahball.zip; do
+            curl -s --ftp-pasv -T "$f" \
+              "ftp://$FTP_USER:$FTP_PASS@$FTP_HOST/PUBLIC/$(basename "$f")" \
+              && echo "uploaded: PUBLIC/$(basename "$f")"
+          done
