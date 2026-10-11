@@ -14,6 +14,9 @@
 
 name: release
 
+permissions:
+  contents: write  # release creation on tags (default token is read-only)
+
 on:
   push:
     branches: [main]
