@@ -1,101 +1,86 @@
-# XAHBall release build: cross-compiles the m68k binary with the Bartman GCC
-# toolchain (from the amiga-debug VSCode extension), converts assets with the
-# ACE host tools, packs an LHA + ZIP and publishes them.
+# XAHBall release build: cross-compiles the m68k binary in the
+# mirqq/amiga-development docker image (Bartman toolchain + ACE host tools
+# environment), packs an LHA + ZIP and publishes them.
 #
 # Triggers:
 #  - every push to main            -> build + artifact
-#  - tags v*                       -> build + artifact + GitHub release
+#  - tags (v* / 0.*)               -> build + artifact + GitHub release
 #  - workflow_dispatch (manual)    -> build + artifact
 #  - FTP upload happens only when FTP_HOST/FTP_USER/FTP_PASS secrets are set.
 #
-# Pinned dependencies (bump deliberately):
-#  - amiga-debug extension 1.8.2 (compiler toolchain + elf2hunk)
-#  - ACE @ 1d09ead6dec16eb343a1677eadd25862a20171e8 (matches local dev clone)
+# Pinned dependency: ACE @ 1d09ead6dec16eb343a1677eadd25862a20171e8
+# (matches the local dev clone; the repo ships deps/ace as a dev-only symlink
+# to an absolute path, which the CI step below replaces with this checkout).
 
 name: release
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*', '0.*']
   workflow_dispatch:
+
+env:
+  ACE_PIN: 1d09ead6dec16eb343a1677eadd25862a20171e8
+  EXT_PATH: /home/amiga/.vscode/extensions/bartmanabyss.amiga-debug-1.7.9
+  FTP_HOST: ${{ secrets.FTP_HOST }}
+  FTP_USER: ${{ secrets.FTP_USER }}
+  FTP_PASS: ${{ secrets.FTP_PASS }}
 
 jobs:
   build:
+    name: Build Amiga release
     runs-on: ubuntu-latest
-    env:
-      ACE_PIN: 1d09ead6dec16eb343a1677eadd25862a20171e8
-      AMIGA_DEBUG_VER: 1.8.2
-      FTP_HOST: ${{ secrets.FTP_HOST }}
-      FTP_USER: ${{ secrets.FTP_USER }}
-      FTP_PASS: ${{ secrets.FTP_PASS }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install host dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential unzip lhasa
-
-      - name: Download Bartman amiga-debug extension (toolchain + elf2hunk)
-        run: |
-          gh release download "$AMIGA_DEBUG_VER" -R BartmanAbyss/vscode-amiga-debug -p '*.vsix' -O toolchain.vsix
-          unzip -q toolchain.vsix -d amiga-ext
-          # vsix packaging drops the executable bit - restore it (the extension
-          # does the same on install)
-          chmod -R u+x amiga-ext/extension/bin
-          EXT="$PWD/amiga-ext/extension"
-          test -x "$EXT/bin/linux/opt/bin/m68k-amiga-elf-gcc"
-          test -x "$EXT/bin/linux/elf2hunk"
-          echo "EXT_PATH=$EXT" >> "$GITHUB_ENV"
-        env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Fetch ACE engine (replaces the dev-only symlink)
+      - name: Replace dev-only ACE symlink with pinned checkout
         run: |
           rm game/deps/ace
           git clone --depth 1 https://github.com/AmigaPorts/ACE game/deps/ace
           git -C game/deps/ace checkout "$ACE_PIN"
 
+      - name: Prepare workspace permissions (docker writes as root)
+        run: chmod -R 777 .
+
       - name: Build ACE host asset tools
-        run: |
-          cmake -S game/deps/ace/tools -B game/deps/ace/tools/build \
-            -DCMAKE_BUILD_TYPE=Release
-          cmake --build game/deps/ace/tools/build -j 4
+        uses: docker://mirqqq/amiga-development:v0.4
+        with:
+          args: >
+            /bin/sh -c "cd game/deps/ace/tools &&
+            mkdir -p build && cd build &&
+            cmake .. -DCMAKE_C_COMPILER=gcc &&
+            cmake --build . -j 6"
 
-      - name: Build LHa packer (lhasa can only extract)
-        run: |
-          git clone --depth 1 https://github.com/jca02266/lha lha-src
-          cd lha-src
-          ./configure --prefix="$PWD/install" > /dev/null
-          make -j 4 > /dev/null
-          make install
-          echo "LHA=$PWD/install/bin/lha" >> "$GITHUB_ENV"
-
-      - name: Configure game (m68k cross build)
-        run: |
-          cmake -B build -S game \
-            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/AmigaCMakeCrossToolchains/m68k-bartman.cmake" \
-            -DVSCODE_AMIGA_EXTENSION_PATH="$EXT_PATH" \
-            -DM68K_CPU=68000
-
-      - name: Build game + convert assets
-        run: cmake --build build -j 4
+      - name: Build game (m68k cross + asset conversion)
+        uses: docker://mirqqq/amiga-development:v0.4
+        with:
+          args: >
+            /bin/sh -c "cmake -B game-build -S game
+            -DVSCODE_AMIGA_EXTENSION_PATH=$EXT_PATH
+            -DCMAKE_TOOLCHAIN_FILE=AmigaCMakeCrossToolchains/m68k-bartman.cmake
+            -DM68K_CPU=68000 &&
+            cmake --build game-build -j 6"
 
       - name: Assemble dist folder
         run: |
           mkdir -p out/xahball
-          cp -r build/dist/. out/xahball/
+          cp -r game-build/dist/. out/xahball/
           cp tools/dist-README.txt out/xahball/README-INSTALL.txt
-          SHORT_SHA="${GITHUB_SHA::7}"
-          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
-      - name: Pack LHA (verified with lhasa) and ZIP
-        run: |
-          cd out
-          "$LHA" a xahball.lha xahball > /dev/null
-          lhasa t xahball.lha
-          zip -rq xahball.zip xahball
+      - name: Pack LHA + ZIP
+        uses: docker://mirqqq/amiga-development:v0.4
+        with:
+          args: >
+            /bin/sh -c "cd out &&
+            lha a xahball.lha xahball > /dev/null &&
+            lha t xahball.lha"
+
+      - name: Pack ZIP (host)
+        run: cd out && zip -rq xahball.zip xahball
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -106,7 +91,7 @@ jobs:
             out/xahball.zip
 
       - name: Attach to GitHub release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
