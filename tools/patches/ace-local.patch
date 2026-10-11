@@ -1,0 +1,36 @@
+diff --git a/tools/src/audio_conv.cpp b/tools/src/audio_conv.cpp
+index 69094fe..040629f 100644
+--- a/tools/src/audio_conv.cpp
++++ b/tools/src/audio_conv.cpp
+@@ -80,7 +80,8 @@ int main(int lArgCount, const char *pArgs[]) {
+ 		}
+ 		else if(Arg == "-fpt"sv) {
+ 			isForcePt = true;
+-			oForcePad = std::min<uint8_t>(oForcePad.value_or(0), 2);
++			// PTPlayer needs even-length samples - ensure at least 2-byte alignment
++			oForcePad = std::max<uint8_t>(oForcePad.value_or(0), 2);
+ 		}
+ 		else if(Arg == "-fpad"sv && ArgIndex < lArgCount -1) {
+ 			oForcePad = uint8_t(std::stoul(pArgs[++ArgIndex]));
+diff --git a/tools/src/common/sfx.cpp b/tools/src/common/sfx.cpp
+index 61c4f5b..8b696dc 100644
+--- a/tools/src/common/sfx.cpp
++++ b/tools/src/common/sfx.cpp
+@@ -148,10 +148,13 @@ void tSfx::enforceEmptyFirstWord(void) {
+ }
+ 
+ void tSfx::padContents(std::uint8_t ubAlignment) {
+-		std::uint8_t ubAddCount = m_vData.size() % ubAlignment;
+-		for(std::uint8_t i = ubAddCount; i--;) {
+-			m_vData.push_back(0);
+-		}
++	if(ubAlignment == 0) {
++		return;
++	}
++	std::uint8_t ubAddCount = m_vData.size() % ubAlignment;
++	for(std::uint8_t i = ubAddCount; i--;) {
++		m_vData.push_back(0);
++	}
+ }
+ 
+ tSfx tSfx::splitAfter(std::uint32_t ulSamples) {
