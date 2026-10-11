@@ -42,7 +42,7 @@ jobs:
           git clone --depth 1 https://github.com/AmigaPorts/ACE game/deps/ace
           git -C game/deps/ace checkout "$ACE_PIN"
           # local fixes: audio_conv SIGFPE on -fpt (divide by zero) + pad logic
-          git apply tools/patches/ace-local.patch
+          git -C game/deps/ace apply "$GITHUB_WORKSPACE/tools/patches/ace-local.patch"
 
       - name: Prepare workspace permissions (docker writes as root)
         run: chmod -R 777 .
