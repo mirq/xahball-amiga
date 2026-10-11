@@ -41,6 +41,9 @@ jobs:
         run: |
           gh release download "$AMIGA_DEBUG_VER" -R BartmanAbyss/vscode-amiga-debug -p '*.vsix' -O toolchain.vsix
           unzip -q toolchain.vsix -d amiga-ext
+          # vsix packaging drops the executable bit - restore it (the extension
+          # does the same on install)
+          chmod -R u+x amiga-ext/extension/bin
           EXT="$PWD/amiga-ext/extension"
           test -x "$EXT/bin/linux/opt/bin/m68k-amiga-elf-gcc"
           test -x "$EXT/bin/linux/elf2hunk"
