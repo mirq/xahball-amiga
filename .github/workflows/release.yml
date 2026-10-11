@@ -71,6 +71,8 @@ jobs:
           mkdir -p out/xahball
           cp -r game-build/dist/. out/xahball/
           cp tools/dist-README.txt out/xahball/README-INSTALL.txt
+          # docker steps run as a non-root user - keep out/ writable for them
+          chmod -R 777 out
           echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Pack LHA + ZIP
