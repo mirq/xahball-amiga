@@ -75,7 +75,7 @@ target: A500 68000, 512 KB chip + 512 KB slow RAM.
 
 ## Credits
 
-- **ACE Amiga C Engine** — Marcin "mirq" Zięba (approxit) & contributors, MPL-2.0
+- **ACE Amiga C Engine**
 - Silkscreen font — from the ACE showcase assets
 - Intro technique (copper-band logo splash) after *GermZ* by
   Last-Minute-Creations
