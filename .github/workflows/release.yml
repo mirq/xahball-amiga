@@ -42,8 +42,12 @@ jobs:
       - name: Replace dev-only ACE symlink with pinned checkout
         run: |
           rm game/deps/ace
-          git clone --depth 1 https://github.com/AmigaPorts/ACE game/deps/ace
-          git -C game/deps/ace checkout "$ACE_PIN"
+          # fetch the pin by SHA: a --depth 1 clone of the branch head would
+          # break with "missing object" as soon as upstream ACE advances
+          git init game/deps/ace
+          git -C game/deps/ace remote add origin https://github.com/AmigaPorts/ACE
+          git -C game/deps/ace fetch --depth 1 origin "$ACE_PIN"
+          git -C game/deps/ace checkout FETCH_HEAD
           # local fixes: audio_conv SIGFPE on -fpt (divide by zero) + pad logic
           git -C game/deps/ace apply "$GITHUB_WORKSPACE/tools/patches/ace-local.patch"
 
