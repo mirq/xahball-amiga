@@ -1,0 +1,39 @@
+GIMP Palette
+Name: ACE
+Columns: 8
+#
+  0   0   0 Black
+255   0   0 A
+  0 255   0 C
+  0   0 255 E
+# Padded to 32 entries so bitmap_conv emits a 5bpp bitmap - depth must
+# match the intro framebuffer (also 5bpp, interleaved) or blitCopy()
+# falls back to the slow mixed-interleaved per-plane path.
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad
+  0   0   0 pad

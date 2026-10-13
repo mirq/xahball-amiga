@@ -128,6 +128,34 @@ convertAudio(TARGET ${GAME_LINKED} SOURCE ${RES_DIR}/sfx/kick.wav DESTINATION ${
 convertAudio(TARGET ${GAME_LINKED} SOURCE ${RES_DIR}/sfx/bounce.wav DESTINATION ${DATA_DIR}/sfx/bounce.sfx PTPLAYER NORMALIZE)
 convertAudio(TARGET ${GAME_LINKED} SOURCE ${RES_DIR}/sfx/goal.wav DESTINATION ${DATA_DIR}/sfx/goal.sfx PTPLAYER NORMALIZE)
 convertAudio(TARGET ${GAME_LINKED} SOURCE ${RES_DIR}/sfx/whistle.wav DESTINATION ${DATA_DIR}/sfx/whistle.sfx PTPLAYER NORMALIZE)
+convertAudio(TARGET ${GAME_LINKED} SOURCE ${RES_DIR}/sfx/ace.wav DESTINATION ${DATA_DIR}/sfx/ace.sfx PTPLAYER NORMALIZE)
+
+# ACE intro logo splash (GermZ-style: display palette stays black, colors
+# come from copper blocks over the logo - A=1, C=2, E/POWERED=3). The .gpl
+# is padded to 32 entries so bitmap_conv emits a 5bpp bitmap: depth must
+# match the framebuffer or blitCopy() falls back to the slow per-plane
+# mixed-interleaved path instead of the single-blit fast path.
+convertBitmaps(
+	TARGET ${GAME_LINKED}
+	PALETTE ${RES_DIR}/logo/ace.gpl
+	INTERLEAVED
+	SOURCES ${RES_DIR}/logo/ace.png
+	DESTINATIONS ${DATA_DIR}/ace.bm
+)
+# Title art: full-screen 320x256x5bpp, interleaved like the framebuffer so
+# blitCopyAligned() takes the fast aligned path. The palette is picked from
+# the image itself and also shipped as .plt - the intro loads it at runtime
+# (paletteLoadFromPath) so bitmap and palette can never drift apart.
+# CONVERT_COLORS: the .gpl keeps exact 8-bit RGBs (bitmap_conv matches them
+# exactly), the .plt truncates to 4-bit OCS channels.
+convertPalette(${GAME_LINKED} ${RES_DIR}/logo/title.gpl ${DATA_DIR}/title.plt CONVERT_COLORS)
+convertBitmaps(
+	TARGET ${GAME_LINKED}
+	PALETTE ${RES_DIR}/logo/title.gpl
+	INTERLEAVED
+	SOURCES ${RES_DIR}/logo/title.png
+	DESTINATIONS ${DATA_DIR}/title.bm
+)
 
 # Menu music: mod_tool splits the ProTracker mod into a fast-mem .mod
 # structure + chip samplepack for ptplayer (chaosArena-style pipeline)

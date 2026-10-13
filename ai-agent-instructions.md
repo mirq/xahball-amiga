@@ -385,3 +385,46 @@ Environment gotchas:
   an axis when `|dx| > |dy|/3` (same 3:1 split as the old Manhattan-normalize
   threshold, but no `fix16_div`); 2px-Manhattan deadzone lets bots coast to a
   stop — verified to settle within 1 px of their spot, no brake logic needed.
+
+## 16. CI, palettes per screen, and other 0.3 findings
+
+- **CI release build** (`.github/workflows/release.yml`): uses the
+  `mirqqq/amiga-development` docker image (Bartman toolchain + elf2hunk
+  preinstalled, extension at
+  `/home/amiga/.vscode/extensions/bartmanabyss.amiga-debug-1.7.9`). The repo's
+  `deps/ace` is a dev-only symlink to an absolute path - CI replaces it with a
+  pinned AmigaPorts/ACE checkout and applies `tools/patches/ace-local.patch`
+  (audio_conv SIGFPE on `-fpt`: divide by zero in padContents - pristine ACE
+  crashes on every .sfx conversion). CMake toolchain/build paths must be
+  ABSOLUTE inside docker (relative toolchain paths resolve against the build
+  dir). `out/` must be chmod 777 before docker steps (image runs non-root).
+  The amiga-debug VSIX strips exec bits - chmod -R u+x after unzip. Repo:
+  BartmanAbyss/vscode-amiga-debug (release 1.8.2).
+- **LHA creation**: lhasa is EXTRACT-ONLY. Use LHa for UNIX
+  (github.com/jca02266/lha, the ac2025+ fork) - `lha a archive.lha dir`.
+- **Per-screen palettes**: every view can have its own palette depth and
+  colors - write `pVPort->pPalette` before `viewLoad` (or program
+  `g_pCustom->color[]` directly for mid-screen changes). The intro runs a
+  5bpp viewport (32 colors) for the title artwork while the ACE splash uses
+  8 entries and the ball demo the menu palette's 16 - palette tables are
+  per-phase C arrays, fades = scaling color registers per frame.
+- **32-color artwork pipeline**: quantize the source (PIL MAXCOVERAGE +
+  Floyd-Steinberg dither), write an N-entry .gpl, convert with
+  `convertBitmaps` (no INTERLEAVED needed for full-screen rect copies),
+  embed the palette as a C table and write it at phase entry. MAXCOVERAGE at
+  16 colors dropped white/silver entirely (merged into pink) - 32 gives
+  clean spread; force pure black as entry 0 (letterbox/transparent fill).
+- **blitUnsafeCopyMask smears interleaved sprite bitmaps** when used on UI
+  (wrong stride handling - diagonal repeats). For full-rectangle copies on a
+  matching background use `blitCopyAligned` (mask pixels are palette entry 0
+  = background color, so corners are invisible). For masked UI draws with
+  correct stride, draw per-row color bars instead. BOB system handles
+  interleaved sprites correctly (match discs are fine).
+- **ptplayer is a singleton**: create once at boot, destroy at exit, NEVER
+  touch channels at state transitions. `ptplayerSfxStopOnChannel()` parks a
+  channel with wordLength=1, which makes the sfx-only interrupt call
+  startSfx() on it EVERY tick forever (channel stays occupied at priority 1,
+  DMA-toggles 50x/s - audible on hardware). `ptplayerStop()` hard-resets
+  channel state and likewise kills future sfx. Let samples ring out - they
+  self-terminate (max ~1.4s here). Reference: AMIner never stops channels.
+- **Font bitmap NULL**: `fontDestroyTextBitMap(NULL)` crashes (no guard).

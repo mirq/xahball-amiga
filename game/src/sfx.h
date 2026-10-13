@@ -14,6 +14,7 @@ typedef enum tSfx {
 	SFX_BOUNCE,
 	SFX_GOAL,
 	SFX_WHISTLE,
+	SFX_ACE,
 	SFX_COUNT
 } tSfx;
 

@@ -55,6 +55,7 @@ typedef enum tGameState {
 	STATE_MENU,
 	STATE_SETUP,
 	STATE_TEAMSEL,
+	STATE_CREDITS,
 	STATE_MATCH,
 	STATE_WINNER,
 	STATE_COUNT
@@ -109,5 +110,10 @@ void matchPaletteLoad(tVPort *pVPort);
 
 // Menu palette RGB table - RGB source for flag-derived dynamic colors
 extern const UWORD g_pMenuPalette[16];
+
+// Credits screen (thanks + testers), reachable from the main menu
+void gsCreditsCreate(void);
+void gsCreditsLoop(void);
+void gsCreditsDestroy(void);
 
 #endif // _XAHBALL_GAME_H_

@@ -24,8 +24,11 @@ Top-down 2D football for the classic Amiga, built with
   with kick charge, recoil and a white-outline "kick armed" indicator
 - Classic Telstar match ball (white with black patches)
 - Role-based AI (attacker/defender with hysteresis, goal-corner aiming)
-- Goal celebrations, kickoff countdown, match timer, pause (ESC), winner
-  screen, dedicated banner strip for phase texts (no overlay flicker)
+- GOAL! banner with ball roll-in, kickoff countdown with kickoff-lock rule
+  (clock starts at first touch), match timer, pause (ESC), winner screen,
+  dedicated banner strip for phase texts (no overlay flicker)
+- Intro sequence: "Powered by ACE" logo splash + 32-color title artwork
+  (per-screen palettes), bouncing ball demo
 - Sample-based sound effects (kick, bounce, whistle, goal crowd) via ptplayer
 
 ## Controls
@@ -77,6 +80,6 @@ target: A500 68000, 512 KB chip + 512 KB slow RAM.
 
 - **ACE Amiga C Engine**
 - Silkscreen font — from the ACE showcase assets
-- Intro technique (copper-band logo splash) after *GermZ* by
-  Last-Minute-Creations
+- Intro technique and "Powered by ACE" logo assets after *AMIner* by
+  Last-Minute-Creations (MPL-2.0)
 - Sound effects synthesized in-house, public domain

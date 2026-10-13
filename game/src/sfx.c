@@ -15,6 +15,7 @@ static const char *s_pSfxPaths[SFX_COUNT] = {
 	"data/sfx/bounce.sfx",
 	"data/sfx/goal.sfx",
 	"data/sfx/whistle.sfx",
+	"data/sfx/ace.sfx",
 };
 
 void sfxCreate(void) {

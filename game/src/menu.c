@@ -42,6 +42,7 @@ typedef enum tMenuRow {
 	MENU_ROW_FREEZE,
 	MENU_ROW_LOCK,
 	MENU_ROW_CONTROLLERS,
+	MENU_ROW_CREDITS,
 	MENU_ROW_START,
 	MENU_ROW_QUIT,
 	MENU_ROW_COUNT
@@ -85,6 +86,7 @@ static void menuUpdateEntries(void) {
 	menuListSetEntry(s_pMenuList, MENU_ROW_FREEZE, MENULIST_ENABLED, szBufFreeze);
 	menuListSetEntry(s_pMenuList, MENU_ROW_LOCK, MENULIST_ENABLED, szBufLock);
 	menuListSetEntry(s_pMenuList, MENU_ROW_CONTROLLERS, MENULIST_ENABLED, "CONTROLLERS");
+	menuListSetEntry(s_pMenuList, MENU_ROW_CREDITS, MENULIST_ENABLED, "CREDITS");
 	menuListSetEntry(s_pMenuList, MENU_ROW_START, MENULIST_ENABLED, "START MATCH");
 	menuListSetEntry(s_pMenuList, MENU_ROW_QUIT, MENULIST_ENABLED, "QUIT");
 	// NOTE: no menuListResetCount here - it would reset the selection to 0
@@ -266,6 +268,10 @@ void gsMenuLoop(void) {
 			case MENU_ROW_CONTROLLERS:
 				sfxPlay(SFX_CONFIRM, 64);
 				stateChange(g_pGameStateManager, &g_pGameStates[STATE_SETUP]);
+				return;
+			case MENU_ROW_CREDITS:
+				sfxPlay(SFX_CONFIRM, 64);
+				stateChange(g_pGameStateManager, &g_pGameStates[STATE_CREDITS]);
 				return;
 			case MENU_ROW_START:
 				sfxPlay(SFX_CONFIRM, 64);

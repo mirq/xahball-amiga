@@ -12,6 +12,7 @@
 #include "menu.h"
 #include "setup.h"
 #include "teamsel.h"
+#include "credits.h"
 #include "match.h"
 #include "winner.h"
 #include "sfx.h"
@@ -24,6 +25,7 @@ tState g_pGameStates[STATE_COUNT] = {
 	[STATE_MENU] = {.cbCreate = gsMenuCreate, .cbLoop = gsMenuLoop, .cbDestroy = gsMenuDestroy},
 	[STATE_SETUP] = {.cbCreate = gsSetupCreate, .cbLoop = gsSetupLoop, .cbDestroy = gsSetupDestroy},
 	[STATE_TEAMSEL] = {.cbCreate = gsTeamSelCreate, .cbLoop = gsTeamSelLoop, .cbDestroy = gsTeamSelDestroy},
+	[STATE_CREDITS] = {.cbCreate = gsCreditsCreate, .cbLoop = gsCreditsLoop, .cbDestroy = gsCreditsDestroy},
 	[STATE_MATCH] = {.cbCreate = gsMatchCreate, .cbLoop = gsMatchLoop, .cbDestroy = gsMatchDestroy},
 	[STATE_WINNER] = {.cbCreate = gsWinnerCreate, .cbLoop = gsWinnerLoop, .cbDestroy = gsWinnerDestroy},
 };
