@@ -4,14 +4,16 @@
 #include <ace/managers/key.h>
 #include <ace/managers/joy.h>
 
+// Named after the physical Amiga ports: ACE JOY1 reads port 2 (joystick
+// port), JOY2 reads port 1 (mouse port), JOY3/JOY4 the parallel adapter
 const char *g_pDeviceNames[DEVICE_COUNT] = {
-	"AI BOT",
-	"JOY1",
-	"JOY2",
-	"JOY3",
-	"JOY4",
-	"KB1:ARROWS",
-	"KB2:WSAD",
+	"CPU",
+	"JOY PORT 2",
+	"JOY PORT 1",
+	"JOY PORT 3",
+	"JOY PORT 4",
+	"ARROWS",
+	"WSAD",
 };
 
 // Direction slots in the per-device tables

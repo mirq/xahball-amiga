@@ -20,6 +20,7 @@
 #include <ace/managers/state.h>
 #include <ace/managers/system.h>
 #include <ace/managers/viewport/simplebuffer.h>
+#include <ace/utils/custom.h>
 #include <ace/utils/extview.h>
 #include <ace/utils/font.h>
 #include <stdio.h>
@@ -29,6 +30,8 @@
 #include "match_internal.h"
 #include "pitch.h"
 #include "sfx.h"
+#include "teams.h"
+#include "ui.h"
 
 //---------------------------------------------------------------------- GLOBALS
 // Shared match state (declared in match_internal.h)
@@ -54,7 +57,37 @@ UWORD s_uwFrameTick;
 UBYTE s_pActiveSlots[2 * SLOTS_PER_SIDE];
 UBYTE s_ubActiveCount;
 
+// Player's own setup while an attract-mode match borrows g_sMatchConfig
+static tMatchConfig s_sDemoSavedConfig;
+static UBYTE s_ubDemoCount;
+
 //-------------------------------------------------------------------- FUNCTIONS
+
+void matchStartDemo(void) {
+	s_sDemoSavedConfig = g_sMatchConfig;
+	g_ubDemoMode = 1;
+
+	// No RNG in the game - beam position + a run counter vary enough
+	UWORD uwSeed = g_pCustom->vhposr ^ (s_ubDemoCount++ * 0x9E37);
+	g_sMatchConfig.ubPlayersPerSide = 2 + (uwSeed & 1); // 2v2 / 3v3 show best
+	g_sMatchConfig.ubTeamLeft = (uwSeed >> 3) % TEAM_COUNT;
+	g_sMatchConfig.ubTeamRight = (g_sMatchConfig.ubTeamLeft + 1 +
+		(uwSeed >> 7) % (TEAM_COUNT - 1)) % TEAM_COUNT;
+	g_sMatchConfig.ubTimeIdx = 0; // 1 minute
+	g_sMatchConfig.ubAiLevel = AI_LEVEL_HARD;
+	g_sMatchConfig.ubBallFreeze = 0;
+	g_sMatchConfig.ubKickoffLock = 1;
+	for(UBYTE i = 0; i < SLOT_COUNT; ++i) {
+		g_sMatchConfig.ubSlotDevice[i] = DEVICE_AI;
+	}
+	stateChange(g_pGameStateManager, &g_pGameStates[STATE_MATCH]);
+}
+
+// Ends an attract-mode match: back to the menu, player setup restored in
+// gsMatchDestroy (after the match no longer reads the config)
+static void matchEndDemo(void) {
+	stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
+}
 
 // Team A slots are 0..n-1, team B slots are 3..3+n-1 (SLOTS_PER_SIDE apart!)
 static void matchBuildActiveSlots(void) {
@@ -171,6 +204,12 @@ void gsMatchLoop(void) {
 	bobSetCurrentBuffer(s_pBfr->pBack);
 	++s_uwFrameTick;
 
+	// Attract mode: any key or fire button hands control back to the menu
+	if(g_ubDemoMode && uiAnyInput()) {
+		matchEndDemo();
+		return;
+	}
+
 	// Input-state overlay toggle - works in every phase
 	if(keyUse(KEY_F1)) {
 		matchRenderToggleInputDebug();
@@ -286,6 +325,10 @@ void gsMatchLoop(void) {
 		case PHASE_FULLTIME:
 			--s_uwPhaseTimer;
 			if(!s_uwPhaseTimer) {
+				if(g_ubDemoMode) {
+					matchEndDemo();
+					return;
+				}
 				stateChange(g_pGameStateManager, &g_pGameStates[STATE_WINNER]);
 				return;
 			}
@@ -327,6 +370,10 @@ void gsMatchDestroy(void) {
 	// real hardware). ptplayer itself stays up - it is app-global.
 	bobManagerDestroy();
 	matchRenderDestroy();
+	if(g_ubDemoMode) {
+		g_sMatchConfig = s_sDemoSavedConfig;
+		g_ubDemoMode = 0;
+	}
 	fontDestroyTextBitMap(s_pTextBitMap);
 	viewDestroy(s_pView);
 	s_pView = 0;

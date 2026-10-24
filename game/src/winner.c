@@ -16,6 +16,7 @@
 #include "game.h"
 #include "sfx.h"
 #include "teams.h"
+#include "ui.h"
 
 static tView *s_pView;
 static tVPort *s_pVPort;
@@ -23,34 +24,56 @@ static tSimpleBufferManager *s_pBfr;
 static tTextBitMap *s_pTextBitMap;
 
 static UWORD s_uwFrameCnt;
+// Pages left to redraw: the panel only changes when the prompt blinks
+static UBYTE s_ubDirty;
+
+#define WINNER_FLAG_W 64
+#define WINNER_FLAG_H 42
+#define WINNER_FLAG_Y (UI_CONTENT_Y + 22)
 
 static void winnerDrawFlagPanel(
-	UBYTE ubTeamIdx, UWORD uwCenterX, UBYTE ubIsWinner
+	tBitMap *pBack, UBYTE ubTeamIdx, UWORD uwCenterX, UBYTE ubIsWinner
 ) {
-	tBitMap *pBack = s_pBfr->pBack;
-	UWORD uwFlagW = 60, uwFlagH = 40;
-	teamDrawFlag(pBack, uwCenterX - uwFlagW / 2, 70, uwFlagW, uwFlagH, ubTeamIdx);
-
-	UWORD uwFx = uwCenterX - uwFlagW / 2 - 2, uwFy = 68;
+	teamDrawFlag(
+		pBack, uwCenterX - WINNER_FLAG_W / 2, WINNER_FLAG_Y,
+		WINNER_FLAG_W, WINNER_FLAG_H, ubTeamIdx
+	);
+	UWORD uwFx = uwCenterX - WINNER_FLAG_W / 2 - 2, uwFy = WINNER_FLAG_Y - 2;
 	UBYTE ubFrame = ubIsWinner ? COLOR_AMBER : COLOR_GRAY;
-	blitRect(pBack, uwFx, uwFy, uwFlagW + 4, 2, ubFrame);
-	blitRect(pBack, uwFx, uwFy + uwFlagH + 2, uwFlagW + 4, 2, ubFrame);
-	blitRect(pBack, uwFx, uwFy, 2, uwFlagH + 4, ubFrame);
-	blitRect(pBack, uwFx + uwFlagW + 2, uwFy, 2, uwFlagH + 4, ubFrame);
+	blitRect(pBack, uwFx, uwFy, WINNER_FLAG_W + 4, 2, ubFrame);
+	blitRect(pBack, uwFx, uwFy + WINNER_FLAG_H + 2, WINNER_FLAG_W + 4, 2, ubFrame);
+	blitRect(pBack, uwFx, uwFy, 2, WINNER_FLAG_H + 4, ubFrame);
+	blitRect(pBack, uwFx + WINNER_FLAG_W + 2, uwFy, 2, WINNER_FLAG_H + 4, ubFrame);
+	fontDrawStr(
+		g_pGameFont, pBack, uwCenterX, WINNER_FLAG_Y + WINNER_FLAG_H + 8,
+		g_pTeams[ubTeamIdx].szCode, ubIsWinner ? COLOR_AMBER : COLOR_ACCENT,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
+	);
 }
 
+// Panel only - the backdrop is drawn once per page at create
 static void winnerDrawPage(tBitMap *pBack) {
 	UWORD uwCx = GAME_SCREEN_WIDTH / 2;
 	UBYTE ubLeft = g_sMatchConfig.ubTeamLeft;
 	UBYTE ubRight = g_sMatchConfig.ubTeamRight;
 	UBYTE ubDraw = g_uwScoreLeft > g_uwScoreRight ? 0 : (g_uwScoreRight > g_uwScoreLeft ? 1 : 2);
 
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, COLOR_BG);
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-	blitRect(pBack, 0, GAME_SCREEN_HEIGHT - 2, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
+	uiDrawPanel(pBack, 8, UI_CONTENT_Y, GAME_SCREEN_WIDTH - 16, 160, 1);
+	fontDrawStr(
+		g_pGameFont, pBack, uwCx, UI_CONTENT_Y + 6, "FULL TIME", COLOR_ACCENT,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
+	);
 
-	winnerDrawFlagPanel(ubLeft, 80, ubDraw == 0);
-	winnerDrawFlagPanel(ubRight, 240, ubDraw == 1);
+	winnerDrawFlagPanel(pBack, ubLeft, 84, ubDraw == 0);
+	winnerDrawFlagPanel(pBack, ubRight, 236, ubDraw == 1);
+
+	// Score between the flags
+	static char szScore[16];
+	sprintf(szScore, "%d : %d", g_uwScoreLeft, g_uwScoreRight);
+	fontDrawStr(
+		g_pGameFont, pBack, uwCx, WINNER_FLAG_Y + WINNER_FLAG_H / 2 - 3, szScore, COLOR_WHITE,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
+	);
 
 	// Headline
 	const char *szHead;
@@ -63,37 +86,25 @@ static void winnerDrawPage(tBitMap *pBack) {
 	else {
 		szHead = g_pTeams[ubRight].szName;
 	}
-	UBYTE ubHeadColor = (ubDraw == 2) ? COLOR_WHITE : COLOR_AMBER;
+	UWORD uwHeadY = WINNER_FLAG_Y + WINNER_FLAG_H + 30;
 	fontDrawStr(
-		g_pGameFont, pBack, uwCx + 2, 173, szHead, COLOR_BLACK,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pBack, uwCx, 171, szHead, ubHeadColor,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+		g_pGameFont, pBack, uwCx, uwHeadY, szHead, (ubDraw == 2) ? COLOR_WHITE : COLOR_AMBER,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
 	);
 	if(ubDraw != 2) {
 		fontDrawStr(
-			g_pGameFont, pBack, uwCx, 187, "WINS!", COLOR_WHITE,
-			FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+			g_pGameFont, pBack, uwCx, uwHeadY + 12, "WINS!", COLOR_WHITE,
+			FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
 		);
 	}
 
-	// Score
-	static char szScore[16];
-	sprintf(szScore, "%d : %d", g_uwScoreLeft, g_uwScoreRight);
-	fontDrawStr(
-		g_pGameFont, pBack, uwCx, 108, szScore, COLOR_WHITE,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-
-	// Blinking prompt - draw over with bg when hidden
-	UBYTE ubVisible = (s_uwFrameCnt & 0x1F) < 24;
-	fontDrawStr(
-		g_pGameFont, pBack, uwCx, 214, "PRESS FIRE FOR MENU",
-		ubVisible ? COLOR_WHITE : COLOR_BG,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
+	// Blinking prompt - hidden phase simply skips it (panel fill erased it)
+	if((s_uwFrameCnt & 0x1F) < 24) {
+		fontDrawStr(
+			g_pGameFont, pBack, uwCx, UI_CONTENT_Y + 144, "PRESS FIRE FOR MENU",
+			COLOR_GRAY, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+		);
+	}
 }
 
 void gsWinnerCreate(void) {
@@ -120,8 +131,11 @@ void gsWinnerCreate(void) {
 	s_pTextBitMap = fontCreateTextBitMap(320, g_pGameFont->uwHeight + 8);
 	s_uwFrameCnt = 0;
 
+	uiDrawBackdrop(s_pBfr->pBack);
+	uiDrawBackdrop(s_pBfr->pFront);
 	winnerDrawPage(s_pBfr->pBack);
 	winnerDrawPage(s_pBfr->pFront);
+	s_ubDirty = 0;
 
 	viewLoad(s_pView);
 	logBlockEnd("gsWinnerCreate");
@@ -131,19 +145,22 @@ void gsWinnerCreate(void) {
 void gsWinnerLoop(void) {
 	++s_uwFrameCnt;
 
-	if(keyUse(KEY_ESCAPE)) {
-		sfxPlay(SFX_BACK, 64);
-		stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
-		return;
-	}
-	if(keyUse(KEY_RETURN) || keyUse(KEY_SPACE) || joyUse(JOY1_FIRE)) {
-		sfxPlay(SFX_CONFIRM, 64);
+	tUiNav eNav = uiNavPoll();
+	if(eNav == UI_NAV_FIRE || eNav == UI_NAV_BACK) {
+		sfxPlay(eNav == UI_NAV_FIRE ? SFX_CONFIRM : SFX_BACK, 64);
 		stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
 		return;
 	}
 
-	// Redraw only on the off-page - never touch the displayed one
-	winnerDrawPage(s_pBfr->pBack);
+	// Prompt blink edge (visible <-> hidden) -> both pages redraw once
+	UBYTE ubPhase = s_uwFrameCnt & 0x1F;
+	if(ubPhase == 0 || ubPhase == 24) {
+		s_ubDirty = 2;
+	}
+	if(s_ubDirty) {
+		winnerDrawPage(s_pBfr->pBack);
+		--s_ubDirty;
+	}
 
 #ifdef XAHBALL_AUTOTEST
 	// Time-up path probe: bleep regularly and watch the audio DMA/volume

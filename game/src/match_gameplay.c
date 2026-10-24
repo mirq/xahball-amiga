@@ -109,12 +109,11 @@ void matchUpdatePlayer(tMatchPlayer *pP) {
 		aiUpdate(
 			&pP->sBody, &s_sBallBody,
 			fwHomeX, fwHomeY, pP->ubSide, pP->ubRole, pP->ubSlot & 1,
-			&pP->sIn, &ubWantKick
+			g_sMatchConfig.ubAiLevel, &pP->sIn, &ubWantKick
 		);
-		// Emulate a human press: 2 frames held every 16, phase-shifted per
-		// slot so two bots never kick in lockstep
+		// Emulated human press, phase-shifted per slot (see aiKickPulse)
 		pP->sIn.ubKick = ubWantKick
-			&& (((s_uwFrameTick + pP->ubSlot * 4) & 15) < KICK_PULSE_FRAMES);
+			&& aiKickPulse(s_uwFrameTick, pP->ubSlot, g_sMatchConfig.ubAiLevel);
 	}
 	else {
 		inputPollDevice(ubDevice, &pP->sIn);

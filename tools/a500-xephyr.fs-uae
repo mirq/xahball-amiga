@@ -1,0 +1,42 @@
+# Classic Amiga 500 for headless-ish testing via tools/emu.sh: runs inside a
+# nested Xephyr display, so key injection / screenshots never touch the
+# desktop session. Boots DH0 (tools/dh0-test), whose startup-sequence runs
+# DH1:xahball/xahball.exe directly - no bridge client (it can't run on A500).
+
+[fs-uae]
+
+kickstart_file = /home/mirek/amiga/kick/kick13.rom
+
+amiga_model = A500
+cpu = 68000
+chip_memory = 512
+slow_memory = 512
+fast_memory = 0
+
+floppy_drive_volume = 0
+
+hard_drive_0 = /home/mirek/amiga-xahball/tools/dh0-test
+hard_drive_0_label = System
+hard_drive_1 = /home/mirek/Amiberry/share/Dev
+hard_drive_1_label = Dev
+
+window_width = 1152
+window_height = 864
+# Window at 0,0 sized exactly like the Xephyr screen (emu.sh). Xephyr runs
+# no window manager, so system_titlebar = 1 means NO titlebar at all - the
+# fs-uae-drawn titlebar/LED chrome would otherwise eat space and push the
+# picture off-center. (fullscreen collapses to 1x1 without a WM.)
+fullscreen = 0
+system_titlebar = 1
+window_x = 0
+window_y = 0
+mouse_integration = 1
+automatic_input_grab = 0
+initial_input_grab = 0
+cursor_integration = 1
+# Full PAL display (overscan included) at 3x - nothing cropped; window
+# size must equal the Xephyr screen in emu.sh
+zoom = full
+keep_aspect = 0
+# Host arrows + right ctrl drive the Amiga joystick port (port 2 = ACE JOY1)
+joystick_port_1 = keyboard

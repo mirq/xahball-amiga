@@ -25,9 +25,10 @@
 #define COLOR_ORANGE 8
 #define COLOR_YELLOW 9
 #define COLOR_GREEN 10
+#define COLOR_PANEL 11       // dark night-blue panel fill (menu screens)
 #define COLOR_AZURE 12
 #define COLOR_NAVY 13
-#define COLOR_ACCENT 14
+#define COLOR_ACCENT 14      // light steel/silver: headings, hints
 #define COLOR_AMBER 15
 
 // Match palette: dedicated indices (matchPaletteLoad). Slots 4..5 and 9..11
@@ -45,6 +46,7 @@
 #define MCOLOR_HUD_GRAY 6
 #define MCOLOR_AMBER 7
 #define MCOLOR_POST 8        // goal posts / goal frame
+#define MCOLOR_PITCH_DARK 10 // darker mowing stripe
 #define MCOLOR_ACCENT 12
 #define MCOLOR_GRAY_D 13
 #define MCOLOR_GRAY_L 14
@@ -77,6 +79,9 @@ typedef struct _tMatchConfig {
 	UBYTE ubTeamRight;
 	UBYTE ubBallFreeze;     // 1: ball freezes on goal instead of rolling in
 	UBYTE ubKickoffLock;    // 1: non-kickoff team barred from center circle
+	UBYTE ubAiLevel;        // AI_LEVEL_* (ai.h)
+	UBYTE ubControlPreset;  // index into the team size's presets, or
+	                        // CONTROL_PRESET_CUSTOM (see controls.h)
 } tMatchConfig;
 
 //------------------------------------------------------------------------ TYPES
@@ -87,6 +92,10 @@ extern tStateManager *g_pGameStateManager;
 extern tState g_pGameStates[STATE_COUNT];
 extern tMatchConfig g_sMatchConfig;
 extern tFont *g_pGameFont; // silkscreen, shared by all states
+
+// 1 while an attract-mode (all-AI) match runs - set by menu/intro idle
+// timeouts, cleared when the match hands control back to the menu
+extern UBYTE g_ubDemoMode;
 
 // Last match results, used by winner state
 extern UWORD g_uwScoreLeft;

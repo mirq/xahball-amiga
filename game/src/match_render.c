@@ -67,6 +67,15 @@ static void matchPaletteWrite(UBYTE ubIdx, UWORD uwRGB) {
 	g_pCustom->color[ubIdx] = uwRGB;
 }
 
+// HUD team code colors: the kit slot, or white for kits too dark to read on
+// the black HUD strip (Germany's 0x222)
+static UBYTE s_pHudCodeColor[2];
+
+static UBYTE matchHudColorForKit(UWORD uwKit, UBYTE ubKitSlot) {
+	UWORD uwLum = ((uwKit >> 8) & 0xF) + ((uwKit >> 4) & 0xF) + (uwKit & 0xF);
+	return (uwLum < 12) ? MCOLOR_WHITE : ubKitSlot;
+}
+
 // Resolves kit RGB values for the dynamic palette slots; away kit kicks in
 // when both teams would wear the same color
 void matchAssignKits(void) {
@@ -82,6 +91,8 @@ void matchAssignKits(void) {
 	}
 	matchPaletteWrite(MCOLOR_KIT_A, uwKitL);
 	matchPaletteWrite(MCOLOR_KIT_B, uwKitR);
+	s_pHudCodeColor[0] = matchHudColorForKit(uwKitL, MCOLOR_KIT_A);
+	s_pHudCodeColor[1] = matchHudColorForKit(uwKitR, MCOLOR_KIT_B);
 }
 
 void matchRenderLoadSprites(void) {
@@ -239,11 +250,11 @@ void matchDrawHudStatic(tBitMap *pTarget) {
 	blitRect(pTarget, 0, HUD_HEIGHT, GAME_SCREEN_WIDTH, 1, MCOLOR_HUD_GRAY);
 	fontDrawStr(
 		g_pGameFont, pTarget, 100, 4, g_pTeams[g_sMatchConfig.ubTeamLeft].szCode,
-		MCOLOR_KIT_A, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+		s_pHudCodeColor[0], FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 	);
 	fontDrawStr(
 		g_pGameFont, pTarget, 220, 4, g_pTeams[g_sMatchConfig.ubTeamRight].szCode,
-		MCOLOR_KIT_B, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+		s_pHudCodeColor[1], FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 	);
 }
 
@@ -294,6 +305,15 @@ void matchDrawBanner(void) {
 		if(s_ubBannerDirty[ubPage]) {
 			blitRect(pBack, 0, BANNER_Y0 + 1, GAME_SCREEN_WIDTH, uwBannerH, MCOLOR_BLACK);
 			s_ubBannerDirty[ubPage] = 0;
+			// Attract mode keeps its label up during play (every PLAY
+			// stretch follows a kickoff, which marks both pages dirty)
+			if(g_ubDemoMode) {
+				fontDrawStr(
+					g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, BANNER_Y0 + 2,
+					"DEMO - PRESS FIRE", MCOLOR_GRAY_L,
+					FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+				);
+			}
 		}
 		return;
 	}

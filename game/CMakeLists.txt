@@ -157,11 +157,26 @@ convertBitmaps(
 	DESTINATIONS ${DATA_DIR}/title.bm
 )
 
+# Menu-screen stadium backdrop (tools/make_menu_bg.py): 16 colors of the
+# menu palette, interleaved like the framebuffer for blitCopyAligned
+convertBitmaps(
+	TARGET ${GAME_LINKED}
+	PALETTE ${RES_DIR}/menu/menu.gpl
+	INTERLEAVED
+	SOURCES ${RES_DIR}/menu/menubg.png
+	DESTINATIONS ${DATA_DIR}/menubg.bm
+)
+
 # Menu music: mod_tool splits the ProTracker mod into a fast-mem .mod
-# structure + chip samplepack for ptplayer (chaosArena-style pipeline)
+# structure + chip samplepack for ptplayer (chaosArena-style pipeline).
+# "triangles" by X-Type (~225 KB chip samples - music.c keeps
+# it resident instead of reloading per menu visit). The synthesized
+# tools/make_music.py tune (res/music/menu.mod) is the old placeholder.
+# mod_tool merges samples BY NAME, so the repo copy gives the original's
+# four unnamed samples unique names (name fields only, data untouched).
 mergeMods(
 	TARGET ${GAME_LINKED}
-	SOURCES ${RES_DIR}/music/menu.mod
+	SOURCES ${RES_DIR}/music/triangles.mod
 	DESTINATIONS ${DATA_DIR}/menu.mod
 	SAMPLE_PACK ${DATA_DIR}/menu.samplepack
 )

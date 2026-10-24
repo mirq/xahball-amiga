@@ -1,13 +1,18 @@
-/* XAHBall - main menu state */
+/* XAHBall - main menu state
+ * Two pages in one panel over the stadium backdrop:
+ *   MAIN  - start, team size, controls (simple presets / custom), CPU level,
+ *           match time, rules page, credits, quit
+ *   RULES - ball freeze, kickoff lock
+ * Value rows cycle with left/right (fire cycles forward too). Fire on
+ * CONTROLS opens the advanced per-slot setup screen. The panel below the
+ * rows always summarizes who controls each side.
+ * Idling on the menu for MENU_DEMO_IDLE_FRAMES starts an all-AI demo match.
+ */
 #include "menu.h"
 
 #include <ace/managers/blit.h>
 #include <ace/managers/game.h>
-#include <ace/managers/key.h>
-#include <ace/managers/joy.h>
 #include <ace/managers/log.h>
-#include <ace/managers/memory.h>
-#include <ace/managers/ptplayer.h>
 #include <ace/managers/state.h>
 #include <ace/managers/system.h>
 #include <ace/managers/viewport/simplebuffer.h>
@@ -15,83 +20,271 @@
 #include <ace/utils/extview.h>
 #include <ace/utils/font.h>
 #include <stdio.h>
+#include "ai.h"
+#include "controls.h"
 #include "game.h"
-#include "menulist.h"
+#include "match.h"
+#include "music.h"
 #include "sfx.h"
-#include "teams.h"
+#include "ui.h"
+
+#define MENU_DEMO_IDLE_FRAMES (50 * 25)
+
+// Panel geometry - everything below the backdrop's logo band
+#define MENU_PANEL_X 32
+#define MENU_PANEL_Y UI_CONTENT_Y
+#define MENU_PANEL_W 256
+#define MENU_PANEL_H 158
+#define MENU_ROW_Y0 (MENU_PANEL_Y + 8)
+#define MENU_ROW_STEP 12
+#define MENU_LABEL_X (MENU_PANEL_X + 14)
+#define MENU_VALUE_CX (MENU_PANEL_X + 186)
+#define MENU_ARROW_L (MENU_PANEL_X + 132)
+#define MENU_ARROW_R (MENU_PANEL_X + MENU_PANEL_W - 14)
+#define MENU_INFO_Y (MENU_PANEL_Y + 112)
 
 typedef enum tMenuPage {
 	MENU_PAGE_MAIN,
-	MENU_PAGE_MODE,   // handled as value rows on main page - kept for clarity
+	MENU_PAGE_RULES,
 } tMenuPage;
+
+typedef enum tMainRow {
+	MAIN_ROW_START,
+	MAIN_ROW_SIZE,
+	MAIN_ROW_CONTROLS,
+	MAIN_ROW_AI,
+	MAIN_ROW_TIME,
+	MAIN_ROW_RULES,
+	MAIN_ROW_CREDITS,
+	MAIN_ROW_QUIT,
+	MAIN_ROW_COUNT
+} tMainRow;
+
+typedef enum tRulesRow {
+	RULES_ROW_FREEZE,
+	RULES_ROW_LOCK,
+	RULES_ROW_BACK,
+	RULES_ROW_COUNT
+} tRulesRow;
 
 static tView *s_pView;
 static tVPort *s_pVPort;
 static tSimpleBufferManager *s_pBfr;
 static tTextBitMap *s_pTextBitMap;
-static tMenuList *s_pMenuList;
-// Menu music (chaosArena ptplayer pattern): the .mod structure sits in
-// fast mem, its instruments in a chip samplepack
-static tPtplayerMod *s_pMenuMod;
-static tPtplayerSamplePack *s_pMenuSamples;
 
-// Main page rows
-typedef enum tMenuRow {
-	MENU_ROW_MODE,
-	MENU_ROW_TIME,
-	MENU_ROW_FREEZE,
-	MENU_ROW_LOCK,
-	MENU_ROW_CONTROLLERS,
-	MENU_ROW_CREDITS,
-	MENU_ROW_START,
-	MENU_ROW_QUIT,
-	MENU_ROW_COUNT
-} tMenuRow;
+static tMenuPage s_ePage;
+static UBYTE s_ubRow;
+// Selection survives trips to setup/credits/match (the state is recreated)
+static UBYTE s_ubMainRow = MAIN_ROW_START;
+// Pages left to redraw: the panel only changes on input, but both
+// double-buffer pages must catch up -> 2 on every change
+static UBYTE s_ubDirty;
+static UWORD s_uwIdleFrames;
 
-static void menuDrawBg(tBitMap *pTarget) {
-	tBitMap *pBack = pTarget;
+static const char *s_pAiLevelNames[AI_LEVEL_COUNT] = {"NORMAL", "HARD"};
 
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, COLOR_BG);
-
-	// Top and bottom accents
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-	blitRect(pBack, 0, GAME_SCREEN_HEIGHT - 2, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-
-	// Mini pitch decoration at bottom center
-	UWORD uwPitchX = GAME_SCREEN_WIDTH / 2 - 60;
-	UWORD uwPitchY = 230;
-	blitRect(pBack, uwPitchX, uwPitchY, 120, 18, COLOR_PITCH);
-	blitRect(pBack, uwPitchX, uwPitchY, 120, 1, COLOR_WHITE);
-	blitRect(pBack, uwPitchX, uwPitchY + 17, 120, 1, COLOR_WHITE);
-	blitRect(pBack, uwPitchX + 59, uwPitchY + 3, 1, 12, COLOR_WHITE);
+static UBYTE menuRowCount(void) {
+	return (s_ePage == MENU_PAGE_MAIN) ? MAIN_ROW_COUNT : RULES_ROW_COUNT;
 }
 
-// Redraws all menu entries on BOTH buffer pages so double-buffered
-// display stays consistent
-static void menuUpdateEntries(void) {
-	static char szBufMode[32];
-	static char szBufTime[32];
-	static char szBufFreeze[32];
-	static char szBufLock[32];
+// Row label + value text (value 0 = plain action row)
+static void menuRowTexts(UBYTE ubRow, const char **pLabel, const char **pValue) {
+	static char szValue[24];
+	*pValue = 0;
+	if(s_ePage == MENU_PAGE_RULES) {
+		switch(ubRow) {
+			case RULES_ROW_FREEZE:
+				*pLabel = "BALL FREEZE";
+				*pValue = g_sMatchConfig.ubBallFreeze ? "ON" : "OFF";
+				break;
+			case RULES_ROW_LOCK:
+				*pLabel = "KICKOFF LOCK";
+				*pValue = g_sMatchConfig.ubKickoffLock ? "ON" : "OFF";
+				break;
+			default:
+				*pLabel = "BACK";
+				break;
+		}
+		return;
+	}
+	switch(ubRow) {
+		case MAIN_ROW_START: *pLabel = "START MATCH"; break;
+		case MAIN_ROW_SIZE:
+			*pLabel = "TEAM SIZE";
+			sprintf(szValue, "%d VS %d",
+				g_sMatchConfig.ubPlayersPerSide, g_sMatchConfig.ubPlayersPerSide);
+			*pValue = szValue;
+			break;
+		case MAIN_ROW_CONTROLS:
+			*pLabel = "CONTROLS";
+			*pValue = controlsPresetName(
+				g_sMatchConfig.ubPlayersPerSide, g_sMatchConfig.ubControlPreset
+			);
+			break;
+		case MAIN_ROW_AI:
+			*pLabel = "CPU LEVEL";
+			*pValue = s_pAiLevelNames[g_sMatchConfig.ubAiLevel];
+			break;
+		case MAIN_ROW_TIME:
+			*pLabel = "MATCH TIME";
+			sprintf(szValue, "%d MIN", g_uwTimeOptions[g_sMatchConfig.ubTimeIdx] / 60);
+			*pValue = szValue;
+			break;
+		case MAIN_ROW_RULES: *pLabel = "RULES"; break;
+		case MAIN_ROW_CREDITS: *pLabel = "CREDITS"; break;
+		default: *pLabel = "QUIT"; break;
+	}
+}
 
-	UBYTE ubPpS = g_sMatchConfig.ubPlayersPerSide;
-	sprintf(szBufMode, "TEAM SIZE: %dVS%d", ubPpS, ubPpS);
-	UWORD uwSecs = g_uwTimeOptions[g_sMatchConfig.ubTimeIdx];
-	sprintf(szBufTime, "MATCH TIME: %d MIN", uwSecs / 60);
-	sprintf(szBufFreeze, "BALL FREEZE: %s", g_sMatchConfig.ubBallFreeze ? "ON" : "OFF");
-	sprintf(szBufLock, "KICKOFF LOCK: %s", g_sMatchConfig.ubKickoffLock ? "ON" : "OFF");
+static void menuDrawText(tBitMap *pDst, UWORD uwX, UWORD uwY, const char *sz, UBYTE ubColor, UBYTE ubFlags) {
+	if(sz[0]) { // empty string = zero-width blit = memory corruption
+		fontDrawStr(g_pGameFont, pDst, uwX, uwY, sz, ubColor, ubFlags | FONT_COOKIE, s_pTextBitMap);
+	}
+}
 
-	menuListSetEntry(s_pMenuList, MENU_ROW_MODE, MENULIST_ENABLED, szBufMode);
-	menuListSetEntry(s_pMenuList, MENU_ROW_TIME, MENULIST_ENABLED, szBufTime);
-	menuListSetEntry(s_pMenuList, MENU_ROW_FREEZE, MENULIST_ENABLED, szBufFreeze);
-	menuListSetEntry(s_pMenuList, MENU_ROW_LOCK, MENULIST_ENABLED, szBufLock);
-	menuListSetEntry(s_pMenuList, MENU_ROW_CONTROLLERS, MENULIST_ENABLED, "CONTROLLERS");
-	menuListSetEntry(s_pMenuList, MENU_ROW_CREDITS, MENULIST_ENABLED, "CREDITS");
-	menuListSetEntry(s_pMenuList, MENU_ROW_START, MENULIST_ENABLED, "START MATCH");
-	menuListSetEntry(s_pMenuList, MENU_ROW_QUIT, MENULIST_ENABLED, "QUIT");
-	// NOTE: no menuListResetCount here - it would reset the selection to 0
+// Context hint for the selected row, shown at the bottom of the panel
+static const char *menuHint(void) {
+	if(s_ePage == MENU_PAGE_RULES) {
+		switch(s_ubRow) {
+			case RULES_ROW_FREEZE: return "BALL STOPS DEAD ON A GOAL";
+			case RULES_ROW_LOCK: return "KEEP OUT OF CIRCLE AT KICKOFF";
+			default: return "FIRE: BACK TO MAIN MENU";
+		}
+	}
+	switch(s_ubRow) {
+		case MAIN_ROW_CONTROLS: return "L/R: PRESET   FIRE: CUSTOM SETUP";
+		case MAIN_ROW_SIZE:
+		case MAIN_ROW_AI:
+		case MAIN_ROW_TIME: return "LEFT/RIGHT: CHANGE";
+		default: return "FIRE: SELECT";
+	}
+}
 
-	// Entry text bitmaps refreshed; display happens in the per-frame redraw
+static void menuDrawPanel(tBitMap *pDst) {
+	uiDrawPanel(pDst, MENU_PANEL_X, MENU_PANEL_Y, MENU_PANEL_W, MENU_PANEL_H, 1);
+
+	for(UBYTE ubRow = 0; ubRow < menuRowCount(); ++ubRow) {
+		const char *szLabel, *szValue;
+		menuRowTexts(ubRow, &szLabel, &szValue);
+		UWORD uwY = MENU_ROW_Y0 + ubRow * MENU_ROW_STEP;
+		UBYTE ubSel = (ubRow == s_ubRow);
+		if(ubSel) {
+			blitRect(pDst, MENU_PANEL_X + 3, uwY - 2, MENU_PANEL_W - 6, 10, COLOR_BG);
+		}
+		menuDrawText(pDst, MENU_LABEL_X, uwY, szLabel, ubSel ? COLOR_AMBER : COLOR_WHITE, FONT_LEFT | FONT_SHADOW);
+		if(szValue) {
+			menuDrawText(pDst, MENU_VALUE_CX, uwY, szValue, ubSel ? COLOR_WHITE : COLOR_ACCENT, FONT_HCENTER | FONT_SHADOW);
+			if(ubSel) {
+				menuDrawText(pDst, MENU_ARROW_L, uwY, "<", COLOR_AMBER, FONT_LEFT);
+				menuDrawText(pDst, MENU_ARROW_R, uwY, ">", COLOR_AMBER, FONT_LEFT);
+			}
+		}
+	}
+
+	// Who controls each side - always visible, so presets need no guessing
+	UWORD uwY = MENU_INFO_Y;
+	blitRect(pDst, MENU_PANEL_X + 8, uwY - 5, MENU_PANEL_W - 16, 1, COLOR_GRAY);
+	menuDrawText(pDst, MENU_LABEL_X, uwY, "LEFT", COLOR_ACCENT, FONT_LEFT);
+	menuDrawText(pDst, MENU_LABEL_X + 40, uwY, controlsDescribeSide(0), COLOR_WHITE, FONT_LEFT);
+	menuDrawText(pDst, MENU_LABEL_X, uwY + 10, "RIGHT", COLOR_ACCENT, FONT_LEFT);
+	menuDrawText(pDst, MENU_LABEL_X + 40, uwY + 10, controlsDescribeSide(1), COLOR_WHITE, FONT_LEFT);
+	menuDrawText(pDst, GAME_SCREEN_WIDTH / 2, uwY + 26, menuHint(), COLOR_GRAY, FONT_HCENTER);
+}
+
+static void menuSetPage(tMenuPage ePage, UBYTE ubRow) {
+	if(s_ePage == MENU_PAGE_MAIN) {
+		s_ubMainRow = s_ubRow;
+	}
+	s_ePage = ePage;
+	s_ubRow = ubRow;
+	s_ubDirty = 2;
+}
+
+// Left/right (and fire) on a value row. Returns 1 if the row has a value.
+static UBYTE menuChangeValue(BYTE bDir) {
+	if(s_ePage == MENU_PAGE_RULES) {
+		switch(s_ubRow) {
+			case RULES_ROW_FREEZE:
+				g_sMatchConfig.ubBallFreeze = !g_sMatchConfig.ubBallFreeze;
+				return 1;
+			case RULES_ROW_LOCK:
+				g_sMatchConfig.ubKickoffLock = !g_sMatchConfig.ubKickoffLock;
+				return 1;
+			default:
+				return 0;
+		}
+	}
+	switch(s_ubRow) {
+		case MAIN_ROW_SIZE: {
+			BYTE bVal = g_sMatchConfig.ubPlayersPerSide + bDir;
+			if(bVal < 1) { bVal = SLOTS_PER_SIDE; }
+			if(bVal > SLOTS_PER_SIDE) { bVal = 1; }
+			g_sMatchConfig.ubPlayersPerSide = bVal;
+			controlsOnTeamSizeChange();
+			return 1;
+		}
+		case MAIN_ROW_CONTROLS: {
+			// Presets 0..n-1, then CUSTOM (keeps the current slot devices)
+			BYTE bCount = controlsPresetCount(g_sMatchConfig.ubPlayersPerSide);
+			BYTE bVal = (g_sMatchConfig.ubControlPreset == CONTROL_PRESET_CUSTOM)
+				? bCount : g_sMatchConfig.ubControlPreset;
+			bVal += bDir;
+			if(bVal < 0) { bVal = bCount; }
+			if(bVal > bCount) { bVal = 0; }
+			controlsApplyPreset((bVal == bCount) ? CONTROL_PRESET_CUSTOM : bVal);
+			return 1;
+		}
+		case MAIN_ROW_AI:
+			g_sMatchConfig.ubAiLevel = (g_sMatchConfig.ubAiLevel + AI_LEVEL_COUNT + bDir) % AI_LEVEL_COUNT;
+			return 1;
+		case MAIN_ROW_TIME:
+			g_sMatchConfig.ubTimeIdx = (g_sMatchConfig.ubTimeIdx + TIME_OPTION_COUNT + bDir) % TIME_OPTION_COUNT;
+			return 1;
+		default:
+			return 0;
+	}
+}
+
+// Fire on an action row. Returns 1 when the state changed (caller returns).
+static UBYTE menuActivate(void) {
+	if(s_ePage == MENU_PAGE_RULES) {
+		if(s_ubRow == RULES_ROW_BACK) {
+			sfxPlay(SFX_BACK, 64);
+			menuSetPage(MENU_PAGE_MAIN, MAIN_ROW_RULES);
+		}
+		else if(menuChangeValue(1)) {
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+		}
+		return 0;
+	}
+	switch(s_ubRow) {
+		case MAIN_ROW_START:
+			sfxPlay(SFX_CONFIRM, 64);
+			stateChange(g_pGameStateManager, &g_pGameStates[STATE_TEAMSEL]);
+			return 1;
+		case MAIN_ROW_CONTROLS:
+			sfxPlay(SFX_CONFIRM, 64);
+			stateChange(g_pGameStateManager, &g_pGameStates[STATE_SETUP]);
+			return 1;
+		case MAIN_ROW_RULES:
+			sfxPlay(SFX_CONFIRM, 64);
+			menuSetPage(MENU_PAGE_RULES, 0);
+			return 0;
+		case MAIN_ROW_CREDITS:
+			sfxPlay(SFX_CONFIRM, 64);
+			stateChange(g_pGameStateManager, &g_pGameStates[STATE_CREDITS]);
+			return 1;
+		case MAIN_ROW_QUIT:
+			gameExit();
+			return 1;
+		default:
+			if(menuChangeValue(1)) {
+				sfxPlay(SFX_MOVE, 48);
+				s_ubDirty = 2;
+			}
+			return 0;
+	}
 }
 
 void gsMenuCreate(void) {
@@ -116,39 +309,18 @@ void gsMenuCreate(void) {
 	);
 
 	s_pTextBitMap = fontCreateTextBitMap(320, g_pGameFont->uwHeight + 8);
-	s_pMenuList = menuListCreate(
-		GAME_SCREEN_WIDTH / 2, 88, MENU_ROW_COUNT, 8,
-		g_pGameFont, FONT_HCENTER | FONT_COOKIE | FONT_SHADOW,
-		COLOR_WHITE, COLOR_GRAY, COLOR_AMBER,
-		s_pBfr->pBack
-	);
-	menuListResetCount(s_pMenuList, MENU_ROW_COUNT);
 
-	menuDrawBg(s_pBfr->pBack);
-	menuDrawBg(s_pBfr->pFront);
-	for(UBYTE ubPage = 0; ubPage < 2; ++ubPage) {
-		tBitMap *pPage = ubPage ? s_pBfr->pFront : s_pBfr->pBack;
-		fontDrawStr(
-			g_pGameFont, pPage, GAME_SCREEN_WIDTH / 2, 36, "XAHBALL",
-			COLOR_AMBER, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-		);
-	}
-	menuUpdateEntries();
+	s_ePage = MENU_PAGE_MAIN;
+	s_ubRow = s_ubMainRow;
+	s_uwIdleFrames = 0;
+	s_ubDirty = 0;
+	uiDrawBackdrop(s_pBfr->pBack);
+	uiDrawBackdrop(s_pBfr->pFront);
+	menuDrawPanel(s_pBfr->pBack);
+	menuDrawPanel(s_pBfr->pFront);
 
-	// Music: load the mod + chip samplepack (disk I/O - OS still alive),
-	// then start replay. ptplayerLoadMod also works after systemUnuse,
-	// but loading files must happen while the OS is up.
-	s_pMenuMod = ptplayerModCreateFromPath("data/menu.mod");
-	s_pMenuSamples = ptplayerSampleDataCreateFromPath("data/menu.samplepack");
-	if(s_pMenuMod && s_pMenuSamples) {
-		ptplayerLoadMod(s_pMenuMod, s_pMenuSamples, 0);
-		ptplayerEnableMusic(1);
-	}
-	else {
-		logWrite("ERR: menu music assets failed to load - continuing silently\n");
-		ptplayerModDestroy(s_pMenuMod);
-		s_pMenuMod = 0;
-	}
+	// Disk I/O on the first visit (OS still alive here), resident after
+	musicPlay();
 
 	viewLoad(s_pView);
 	logBlockEnd("gsMenuCreate");
@@ -156,21 +328,6 @@ void gsMenuCreate(void) {
 }
 
 void gsMenuLoop(void) {
-	if(keyUse(KEY_ESCAPE)) {
-		gameExit();
-		return;
-	}
-
-	// Redraw everything on the off-page every frame - pages swap each frame,
-	// so anything not redrawn per-frame would blink between old/new content
-	menuDrawBg(s_pBfr->pBack);
-	fontDrawStr(
-		g_pGameFont, s_pBfr->pBack, GAME_SCREEN_WIDTH / 2, 36, "XAHBALL",
-		COLOR_AMBER, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	s_pMenuList->pDestBitMap = s_pBfr->pBack;
-	menuListDraw(s_pMenuList);
-
 #ifdef XAHBALL_AUTOTEST
 	// Automated audio-loss probe: enter a match once, and after returning
 	// play a menu bleep every ~0.6s while watching the audio DMA + volume
@@ -208,81 +365,57 @@ void gsMenuLoop(void) {
 	}
 #endif
 
-	// Navigation
-	if(keyUse(KEY_UP) || keyUse(KEY_W) || joyUse(JOY1_UP)) {
-		sfxPlay(SFX_MOVE, 48);
-		menuListMove(s_pMenuList, -1);
-	}
-	else if(keyUse(KEY_DOWN) || keyUse(KEY_S) || joyUse(JOY1_DOWN)) {
-		sfxPlay(SFX_MOVE, 48);
-		menuListMove(s_pMenuList, +1);
-	}
-	else if(keyUse(KEY_LEFT) || keyUse(KEY_A) || joyUse(JOY1_LEFT) || keyUse(KEY_RIGHT) || keyUse(KEY_D) || joyUse(JOY1_RIGHT)) {
-		// Value rows toggle on left/right - poll state, don't re-consume one-shots
-		UBYTE ubRight = keyCheck(KEY_RIGHT) || keyCheck(KEY_D) || joyCheck(JOY1_RIGHT);
-		BYTE bDir = ubRight ? 1 : -1;
-		switch(s_pMenuList->ubSelected) {
-			case MENU_ROW_MODE: {
-				UBYTE ubVal = g_sMatchConfig.ubPlayersPerSide;
-				ubVal = (ubVal == 3) ? 1 : ubVal + bDir;
-				if(ubVal < 1) { ubVal = 3; }
-				g_sMatchConfig.ubPlayersPerSide = ubVal;
-				break;
-			}
-			case MENU_ROW_TIME: {
-				BYTE bVal = g_sMatchConfig.ubTimeIdx + bDir;
-				if(bVal < 0) { bVal = TIME_OPTION_COUNT - 1; }
-				if(bVal >= TIME_OPTION_COUNT) { bVal = 0; }
-				g_sMatchConfig.ubTimeIdx = bVal;
-				break;
-			}
-			case MENU_ROW_FREEZE:
-				g_sMatchConfig.ubBallFreeze = !g_sMatchConfig.ubBallFreeze;
-				break;
-			case MENU_ROW_LOCK:
-				g_sMatchConfig.ubKickoffLock = !g_sMatchConfig.ubKickoffLock;
-				break;
-			default:
-				break;
+	tUiNav eNav = uiNavPoll();
+	if(eNav == UI_NAV_NONE) {
+		if(++s_uwIdleFrames >= MENU_DEMO_IDLE_FRAMES) {
+			matchStartDemo();
+			return;
 		}
-		menuUpdateEntries();
-		sfxPlay(SFX_MOVE, 48);
 	}
-	else if(keyUse(KEY_RETURN) || keyUse(KEY_X) || joyUse(JOY1_FIRE)) {
-		switch(s_pMenuList->ubSelected) {
-			case MENU_ROW_MODE: {
-				UBYTE ubVal = g_sMatchConfig.ubPlayersPerSide;
-				g_sMatchConfig.ubPlayersPerSide = (ubVal == 3) ? 1 : ubVal + 1;
-				break;
+	else {
+		s_uwIdleFrames = 0;
+	}
+
+	switch(eNav) {
+		case UI_NAV_UP:
+			s_ubRow = (s_ubRow + menuRowCount() - 1) % menuRowCount();
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+			break;
+		case UI_NAV_DOWN:
+			s_ubRow = (s_ubRow + 1) % menuRowCount();
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+			break;
+		case UI_NAV_LEFT:
+		case UI_NAV_RIGHT:
+			if(menuChangeValue(eNav == UI_NAV_RIGHT ? 1 : -1)) {
+				sfxPlay(SFX_MOVE, 48);
+				s_ubDirty = 2;
 			}
-			case MENU_ROW_TIME: {
-				g_sMatchConfig.ubTimeIdx = (g_sMatchConfig.ubTimeIdx + 1) % TIME_OPTION_COUNT;
-				break;
+			break;
+		case UI_NAV_FIRE:
+			if(menuActivate()) {
+				return;
 			}
-			case MENU_ROW_FREEZE:
-				g_sMatchConfig.ubBallFreeze = !g_sMatchConfig.ubBallFreeze;
-				break;
-			case MENU_ROW_LOCK:
-				g_sMatchConfig.ubKickoffLock = !g_sMatchConfig.ubKickoffLock;
-				break;
-			case MENU_ROW_CONTROLLERS:
-				sfxPlay(SFX_CONFIRM, 64);
-				stateChange(g_pGameStateManager, &g_pGameStates[STATE_SETUP]);
-				return;
-			case MENU_ROW_CREDITS:
-				sfxPlay(SFX_CONFIRM, 64);
-				stateChange(g_pGameStateManager, &g_pGameStates[STATE_CREDITS]);
-				return;
-			case MENU_ROW_START:
-				sfxPlay(SFX_CONFIRM, 64);
-				stateChange(g_pGameStateManager, &g_pGameStates[STATE_TEAMSEL]);
-				return;
-			case MENU_ROW_QUIT:
+			break;
+		case UI_NAV_BACK:
+			if(s_ePage == MENU_PAGE_RULES) {
+				sfxPlay(SFX_BACK, 64);
+				menuSetPage(MENU_PAGE_MAIN, MAIN_ROW_RULES);
+			}
+			else {
 				gameExit();
 				return;
-		}
-		menuUpdateEntries();
-		sfxPlay(SFX_MOVE, 48);
+			}
+			break;
+		default:
+			break;
+	}
+
+	if(s_ubDirty) {
+		menuDrawPanel(s_pBfr->pBack);
+		--s_ubDirty;
 	}
 
 	viewProcessManagers(s_pView);
@@ -293,25 +426,10 @@ void gsMenuLoop(void) {
 void gsMenuDestroy(void) {
 	systemUse();
 	logBlockBegin("gsMenuDestroy");
-	// Stop replay FIRST (ptplayer keeps referencing the sample pack while
-	// playing), then free the mod, then each samplepack chip buffer and
-	// the pack struct itself
-	ptplayerStop();
-	if(s_pMenuSamples) {
-		for(UBYTE i = 0; i < s_pMenuSamples->ubSampleCount; ++i) {
-			memFree(
-				s_pMenuSamples->pSamples[i].pData,
-				s_pMenuSamples->pSamples[i].uwWordLength * sizeof(UWORD)
-			);
-		}
-		memFree(s_pMenuSamples, sizeof(*s_pMenuSamples));
-		s_pMenuSamples = 0;
+	if(s_ePage == MENU_PAGE_MAIN) {
+		s_ubMainRow = s_ubRow;
 	}
-	if(s_pMenuMod) {
-		ptplayerModDestroy(s_pMenuMod);
-		s_pMenuMod = 0;
-	}
-	menuListDestroy(s_pMenuList);
+	musicStop();
 	fontDestroyTextBitMap(s_pTextBitMap);
 	viewDestroy(s_pView);
 	s_pView = 0;

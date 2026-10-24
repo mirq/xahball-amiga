@@ -8,10 +8,10 @@
 
 typedef enum tDevice {
 	DEVICE_AI = 0,
-	DEVICE_JOY1,
-	DEVICE_JOY2,
-	DEVICE_JOY3,
-	DEVICE_JOY4,
+	DEVICE_JOY1, // ACE JOY1 = physical PORT 2 (joystick port)
+	DEVICE_JOY2, // ACE JOY2 = physical PORT 1 (mouse port)
+	DEVICE_JOY3, // parallel adapter port 3
+	DEVICE_JOY4, // parallel adapter port 4
 	DEVICE_KB1, // cursor keys, kick: right shift
 	DEVICE_KB2, // wsad, kick: left shift
 	DEVICE_COUNT

@@ -1,3 +1,18 @@
+diff --git a/include/ace/managers/joy.h b/include/ace/managers/joy.h
+index f3609b4..41ed1b3 100644
+--- a/include/ace/managers/joy.h
++++ b/include/ace/managers/joy.h
+@@ -62,7 +62,9 @@ extern "C" {
+ #define JOY_ACTIVE 2
+ 
+ typedef struct _tJoyManager {
+-	UBYTE pStates[20];
++	// 4 ports x 6 codes (JOY4_FIRE2 = 23): joyProcess() writes all 24 once
++	// joyEnableParallel() is on - 20 entries overflowed into the next global
++	UBYTE pStates[24];
+ } tJoyManager;
+ 
+ /* Globals */
 diff --git a/tools/src/audio_conv.cpp b/tools/src/audio_conv.cpp
 index 69094fe..040629f 100644
 --- a/tools/src/audio_conv.cpp

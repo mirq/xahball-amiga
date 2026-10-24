@@ -7,15 +7,19 @@
 #include <ace/managers/ptplayer.h>
 #include <ace/managers/system.h>
 #include <ace/utils/font.h>
+#include "ai.h"
+#include "controls.h"
 #include "intro.h"
 #include "input_slots.h"
 #include "menu.h"
+#include "music.h"
 #include "setup.h"
 #include "teamsel.h"
 #include "credits.h"
 #include "match.h"
 #include "winner.h"
 #include "sfx.h"
+#include "ui.h"
 
 const UWORD g_uwTimeOptions[TIME_OPTION_COUNT] = {60, 120, 180, 300};
 
@@ -38,7 +42,11 @@ tMatchConfig g_sMatchConfig = {
 	.ubTeamRight = 1,
 	.ubBallFreeze = 0, // ball rolls into the net by default
 	.ubKickoffLock = 1, // kickoff circle rule on by default
+	.ubAiLevel = AI_LEVEL_NORMAL,
+	.ubControlPreset = 0, // applied in genericCreate
 };
+
+UBYTE g_ubDemoMode = 0;
 
 tFont *g_pGameFont = 0;
 
@@ -53,17 +61,14 @@ void genericCreate(void) {
 	joyEnableParallel(); // JOY3/JOY4 via parallel port, ignore if absent
 	keyCreate();
 
-	// Default controller assignment: first slot on KB2 (WSAD + X), rest AI.
-	// KB1's arrow keys are the most universal on real hardware, but fs-uae
-	// test rigs swallow them for joystick emulation - KB2 works everywhere.
-	g_sMatchConfig.ubSlotDevice[0] = DEVICE_KB2;
-	for(UBYTE i = 1; i < SLOT_COUNT; ++i) {
-		g_sMatchConfig.ubSlotDevice[i] = DEVICE_AI;
-	}
+	// Default controllers: first preset = joystick in port 2 vs CPU (the
+	// mouse usually stays in port 1)
+	controlsApplyPreset(0);
 
 	sfxCreate();
 
 	g_pGameFont = fontCreateFromPath("data/silkscreen.fnt");
+	uiCreate();
 
 	createGameStates();
 	stateChange(g_pGameStateManager, &g_pGameStates[STATE_INTRO]);
@@ -78,6 +83,8 @@ void genericProcess(void) {
 
 void genericDestroy(void) {
 	destroyGameStates();
+	musicDestroy();
+	uiDestroy();
 	sfxDestroy();
 	if(g_pGameFont) {
 		fontDestroy(g_pGameFont);
@@ -96,23 +103,26 @@ void destroyGameStates(void) {
 }
 
 // Menu/screen palette (also the RGB source for flag-derived colors like the
-// per-country ball bands)
+// per-country ball bands). The stadium backdrop is dithered into exactly
+// these values - tools/make_menu_bg.py carries a copy, keep both in sync.
+// Flag colors (6..10, 12, 13) are fixed; 2..5, 11 and 14 are tuned for the
+// backdrop art (grass, night sky, chrome logo).
 const UWORD g_pMenuPalette[16] = {
 	0x000, // 0 black
 	0xFFF, // 1 white
-	0x0A0, // 2 pitch green
-	0x080, // 3 pitch dark green
-	0x138, // 4 bg (stadium / menu)
-	0x666, // 5 gray
+	0x391, // 2 grass
+	0x271, // 3 grass dark
+	0x125, // 4 night blue (bg)
+	0x778, // 5 steel gray
 	0xF00, // 6 red
 	0xC03, // 7 maroon
 	0xF80, // 8 orange
 	0xFF0, // 9 yellow
 	0x0D0, // 10 green
-	0x111, // 11 near-black
+	0x013, // 11 panel (deep night blue)
 	0x06F, // 12 azure
 	0x009, // 13 navy
-	0x2CE, // 14 light blue accent
+	0xBBC, // 14 silver accent
 	0xFA0, // 15 amber
 };
 
@@ -131,15 +141,15 @@ void matchPaletteLoad(tVPort *pVPort) {
 	static const UWORD pPalette[16] = {
 		0x000, // 0 black: outlines, HUD bg, text
 		0xFFF, // 1 white: pitch lines, text, ball base, kick-ready outline
-		0x785, // 2 pitch green (HaxBall-like muted grass)
-		0x453, // 3 stadium surround (darker grass)
+		0x5A3, // 2 pitch grass (light mowing stripe)
+		0x231, // 3 stadium surround (dark, frames the pitch)
 		0xE10, // 4 kit A fill (dynamic placeholder, unique)
 		0x18E, // 5 kit B fill (dynamic placeholder, unique)
 		0x666, // 6 HUD gray divider
 		0xFA0, // 7 amber: GOAL!/countdown text, kick flash outline
 		0xF00, // 8 goal posts + frame
 		0xB8C, // 9 spare
-		0x7A4, // 10 spare
+		0x492, // 10 pitch grass (dark mowing stripe)
 		0x4A7, // 11 spare
 		0x2CE, // 12 light blue accent spare
 		0x111, // 13 near-black spare

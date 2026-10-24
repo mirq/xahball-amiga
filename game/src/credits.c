@@ -13,6 +13,7 @@
 #include <ace/utils/font.h>
 #include "game.h"
 #include "sfx.h"
+#include "ui.h"
 
 static tView *s_pView;
 static tVPort *s_pVPort;
@@ -31,21 +32,21 @@ static const char *s_pLines[] = {
 	"BARTEK2075  CUBASA99  MANDI",
 	"KASHINIO  SUPERBONIO  FRANCDT",
 	"KINIA  RJ  JACK_SWIDNIK",
-	"MARX",
+	"MARX  WOZIK",
 };
 #define CREDIT_LINE_COUNT 12
 
+// Static screen: backdrop + panel drawn once per page at create
 static void creditsDrawPage(tBitMap *pTarget) {
 	UWORD uwCenterX = GAME_SCREEN_WIDTH / 2;
-	blitRect(pTarget, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, COLOR_BG);
-	blitRect(pTarget, 0, 0, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-	blitRect(pTarget, 0, GAME_SCREEN_HEIGHT - 2, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
+	uiDrawBackdrop(pTarget);
+	uiDrawPanel(pTarget, 24, UI_CONTENT_Y, 272, 160, 1);
 	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX, 20, "CREDITS", COLOR_AMBER,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+		g_pGameFont, pTarget, uwCenterX, UI_CONTENT_Y + 6, "CREDITS", COLOR_AMBER,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
 	);
 
-	UWORD uwY = 48;
+	UWORD uwY = UI_CONTENT_Y + 20;
 	for(UBYTE i = 0; i < CREDIT_LINE_COUNT; ++i) {
 		const char *szLine = s_pLines[i];
 		if(szLine[0] == 0) {
@@ -59,10 +60,10 @@ static void creditsDrawPage(tBitMap *pTarget) {
 			g_pGameFont, pTarget, uwCenterX, uwY, szLine, ubColor,
 			FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 		);
-		uwY += 14;
+		uwY += 10;
 	}
 	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX, 232, "PRESS FIRE TO CONTINUE",
+		g_pGameFont, pTarget, uwCenterX, UI_CONTENT_Y + 146, "PRESS FIRE TO CONTINUE",
 		COLOR_GRAY, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 	);
 }
@@ -98,7 +99,8 @@ void gsCreditsCreate(void) {
 }
 
 void gsCreditsLoop(void) {
-	if(keyUse(KEY_ESCAPE) || keyUse(KEY_RETURN) || keyUse(KEY_SPACE) || joyUse(JOY1_FIRE)) {
+	tUiNav eNav = uiNavPoll();
+	if(eNav == UI_NAV_FIRE || eNav == UI_NAV_BACK) {
 		sfxPlay(SFX_CONFIRM, 64);
 		stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
 		return;

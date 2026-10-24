@@ -35,6 +35,15 @@
 // Center circle radius (kickoff lock constrains against it)
 #define CENTER_CIRCLE_R 26
 
+// Pitch markings - decoration only, nothing collides with them
+#define PITCH_STRIPE_W 24     // mowing stripe width (288 / 24 = 12 stripes)
+#define PENALTY_BOX_DEPTH 40
+#define PENALTY_BOX_HEIGHT 112
+#define GOAL_BOX_DEPTH 14
+#define GOAL_BOX_HEIGHT 80
+#define PENALTY_SPOT_DIST 28
+#define PENALTY_ARC_R 20
+
 #define PITCH_WIDTH (PITCH_X1 - PITCH_X0)
 #define PITCH_HEIGHT (PITCH_Y1 - PITCH_Y0)
 #define PITCH_CX ((PITCH_X0 + PITCH_X1) / 2)

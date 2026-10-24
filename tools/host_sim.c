@@ -45,7 +45,6 @@ UBYTE pitchIsInGoalMouth(UWORD uwY) {
 #define BALL_MAX_SPEED F16(4.75f)
 #define KICK_RANGE_EXTRA 4
 #define KICK_COOLDOWN 8
-#define KICK_PULSE_FRAMES 2
 
 #define SLOTS_PER_SIDE 3
 #define KICKOFF_FRAMES 150
@@ -60,6 +59,7 @@ typedef struct {
 	UBYTE ubKickConsumed;
 	UBYTE ubKickPressed;
 	UWORD uwKickCooldown;
+	UBYTE ubLevel; // AI_LEVEL_*
 	tInputState sIn;
 } tSimPlayer;
 
@@ -89,9 +89,9 @@ static void simUpdatePlayerHome(tSimPlayer *pP, const tFlatBody *pBall, fix16_t 
 	UBYTE ubWantKick = 0;
 	aiUpdate(
 		&pP->sBody, pBall, fwHomeX, fwHomeY,
-		pP->ubSide, pP->ubRole, pP->ubSlot & 1, &pP->sIn, &ubWantKick
+		pP->ubSide, pP->ubRole, pP->ubSlot & 1, pP->ubLevel, &pP->sIn, &ubWantKick
 	);
-	pP->sIn.ubKick = ubWantKick && (((s_uwFrameTick + pP->ubSlot * 4) & 15) < KICK_PULSE_FRAMES);
+	pP->sIn.ubKick = ubWantKick && aiKickPulse(s_uwFrameTick, pP->ubSlot, pP->ubLevel);
 
 	pP->ubKickPressed = 0;
 	if(pP->sIn.ubKick) {
@@ -185,8 +185,11 @@ static fix16_t fwHomeYOf(UBYTE ubSide, UBYTE ubIdx, UBYTE ubCount) {
 	return fix16_from_int(PITCH_Y0 + (PITCH_HEIGHT * uwFy) / 100);
 }
 
-// Full AI-vs-AI match: tSimPlayer arrays [side][idx]
-static int simFullMatchN(int iSeed, int iMaxFrames, int iCount) {
+// Last simFullMatchLv result per side (level tournament tally)
+static int s_iLastScore[2];
+
+// Full AI-vs-AI match: tSimPlayer arrays [side][idx], per-side AI level
+static int simFullMatchLv(int iSeed, int iMaxFrames, int iCount, int iLevelL, int iLevelR) {
 	tSimPlayer sP[2][3];
 	tFlatBody sBall;
 	memset(sP, 0, sizeof(sP));
@@ -200,10 +203,14 @@ static int simFullMatchN(int iSeed, int iMaxFrames, int iCount) {
 			sP[sd][i].sBody.ubWallMode = FLAT_WALL_PLAYER;
 			sP[sd][i].ubSide = sd;
 			sP[sd][i].ubSlot = sd * SLOTS_PER_SIDE + i;
+			sP[sd][i].ubLevel = sd ? iLevelR : iLevelL;
 			sP[sd][i].sBody.sPos.X = (sd == 0)
 				? fix16_from_int(PITCH_X0 + (PITCH_WIDTH * c_pFormX[iCount - 1][i]) / 100)
 				: fix16_from_int(PITCH_X1 - (PITCH_WIDTH * c_pFormX[iCount - 1][i]) / 100);
 			sP[sd][i].sBody.sPos.Y = fwHomeYOf(sd, i, iCount);
+			// Per-seed jitter: otherwise every seed replays the same game
+			sP[sd][i].sBody.sPos.X += fix16_from_int((int)(uwRnd() % 9) - 4);
+			sP[sd][i].sBody.sPos.Y += fix16_from_int((int)(uwRnd() % 9) - 4);
 			flatWorldAdd(&s_sWorld, &sP[sd][i].sBody);
 		}
 	}
@@ -242,6 +249,12 @@ static int simFullMatchN(int iSeed, int iMaxFrames, int iCount) {
 			for(int i = 0; i < iCount; ++i) {
 				sP[sd][i].ubRole = (i == iBest) ? AI_ROLE_ATTACK : AI_ROLE_DEFEND;
 			}
+		}
+		if(getenv("SIM_TRACE") && iPhase == 1 && (f % 150) == 0) {
+			printf("    f%5d ball %5.1f,%5.1f v %5.2f,%5.2f | L %5.1f,%5.1f | R %5.1f,%5.1f\n", f,
+				F2F(sBall.sPos.X), F2F(sBall.sPos.Y), F2F(sBall.sVel.X), F2F(sBall.sVel.Y),
+				F2F(sP[0][0].sBody.sPos.X), F2F(sP[0][0].sBody.sPos.Y),
+				F2F(sP[1][0].sBody.sPos.X), F2F(sP[1][0].sBody.sPos.Y));
 		}
 		if(iPhase == 1) {
 			for(int sd = 0; sd < 2; ++sd) {
@@ -295,6 +308,8 @@ static int simFullMatchN(int iSeed, int iMaxFrames, int iCount) {
 						? fix16_from_int(PITCH_X0 + (PITCH_WIDTH * c_pFormX[iCount - 1][i]) / 100)
 						: fix16_from_int(PITCH_X1 - (PITCH_WIDTH * c_pFormX[iCount - 1][i]) / 100);
 					sP[sd][i].sBody.sPos.Y = fwHomeYOf(sd, i, iCount);
+					sP[sd][i].sBody.sPos.X += fix16_from_int((int)(uwRnd() % 9) - 4);
+					sP[sd][i].sBody.sPos.Y += fix16_from_int((int)(uwRnd() % 9) - 4);
 					sP[sd][i].sBody.sVel.X = 0;
 					sP[sd][i].sBody.sVel.Y = 0;
 				}
@@ -308,9 +323,16 @@ static int simFullMatchN(int iSeed, int iMaxFrames, int iCount) {
 			uwPhaseTimer = KICKOFF_FRAMES;
 		}
 	}
-	printf("  %dv%d seed %d: %d frames -> %d : %d (kicks %d, max ball speed %.2f)\n",
-		iCount, iCount, iSeed, iMaxFrames, iScoreL, iScoreR, iKicks, F2F(fix16_sqrt(fwMaxSpd2)));
+	s_iLastScore[0] = iScoreL;
+	s_iLastScore[1] = iScoreR;
+	printf("  %dv%d seed %d lv %d:%d: %d frames -> %d : %d (kicks %d, max ball speed %.2f)\n",
+		iCount, iCount, iSeed, iLevelL, iLevelR, iMaxFrames, iScoreL, iScoreR, iKicks,
+		F2F(fix16_sqrt(fwMaxSpd2)));
 	return iScoreL + iScoreR;
+}
+
+static int simFullMatchN(int iSeed, int iMaxFrames, int iCount) {
+	return simFullMatchLv(iSeed, iMaxFrames, iCount, AI_LEVEL_NORMAL, AI_LEVEL_NORMAL);
 }
 
 static int simFullMatch(int iSeed, int iMaxFrames) {
@@ -475,6 +497,29 @@ int main(void) {
 			iTotal2 += simFullMatchN(s + 50, 50 * 180, 2);
 		}
 		printf("  2v2 total goals: %d\n", iTotal2);
+
+		// HARD must beat NORMAL clearly at every team size; sides swapped
+		// every other game so pitch side can't bias the tally
+		printf("[5c] HARD vs NORMAL\n");
+		for(int iCount = 1; iCount <= 3; ++iCount) {
+			int iHard = 0, iNormal = 0, iWins = 0, iLosses = 0;
+			for(int s = 1; s <= 8; ++s) {
+				int iHardSide = s & 1;
+				simFullMatchLv(
+					s * 13 + iCount, 50 * 120, iCount,
+					iHardSide ? AI_LEVEL_NORMAL : AI_LEVEL_HARD,
+					iHardSide ? AI_LEVEL_HARD : AI_LEVEL_NORMAL
+				);
+				int iH = s_iLastScore[iHardSide], iN = s_iLastScore[!iHardSide];
+				iHard += iH;
+				iNormal += iN;
+				iWins += iH > iN;
+				iLosses += iH < iN;
+			}
+			printf("  %dv%d: HARD %d goals, NORMAL %d goals (W %d / L %d)\n",
+				iCount, iCount, iHard, iNormal, iWins, iLosses);
+			CHECK(iHard > iNormal, "HARD AI doesn't outscore NORMAL");
+		}
 	}
 
 	// 6) Head-on disc collision momentum sanity (overlapping discs)

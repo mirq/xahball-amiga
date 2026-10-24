@@ -1,0 +1,20 @@
+GIMP Palette
+Name: XAHBall menu
+Columns: 4
+#
+  0   0   0	black
+255 255 255	white
+ 51 153  17	grass
+ 34 119  17	grass dark
+ 17  34  85	night blue
+119 119 136	steel gray
+255   0   0	red
+204   0  51	maroon
+255 136   0	orange
+255 255   0	yellow
+  0 221   0	green
+  0  17  51	panel
+  0 102 255	azure
+  0   0 153	navy
+187 187 204	accent silver
+255 170   0	amber

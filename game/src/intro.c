@@ -1,14 +1,13 @@
-/* XAHBall - intro state: ACE logo splash, XAHBALL title art, bouncing ball
- * demo, credits. Three phases:
- *   PH_ACE  - ACE logo (own 4-color palette: A=red, C=green, E=blue),
- *             palette fade-in/out, "ace" sample
- *   PH_TITLE - full-screen XAHBALL title artwork (32 colors), fade in/out;
- *             palette is picked from the image itself, converted to
- *             data/title.plt and loaded at runtime via paletteLoadFromPath()
- *   PH_DEMO - bouncing ball + texts on the menu palette (original intro)
- * Double-buffered: static screens are composed on BOTH pages at phase entry,
- * animated bits (ball) are composed on the off-page each frame.
- * Any fire/return/escape advances to the next phase (demo -> menu).
+/* XAHBall - intro state: ACE logo splash, then the XAHBALL title artwork
+ * as the welcome screen. Two phases:
+ *   PH_ACE   - ACE logo (own 4-color palette: A=red, C=green, E=blue),
+ *              palette fade-in/out, "ace" sample. Fire skips it.
+ *   PH_TITLE - full-screen title artwork (32 colors, tools/make_title.py),
+ *              palette from data/title.plt. Fades in, then waits with a
+ *              blinking "PRESS FIRE TO START". Fire fades out to the menu;
+ *              idling INTRO_IDLE_DEMO_FRAMES fades out into a demo match.
+ * Double-buffered: the artwork is composed on BOTH pages at phase entry;
+ * the prompt is restored from the artwork + redrawn per page on blink edges.
  */
 #include "intro.h"
 
@@ -26,32 +25,36 @@
 #include <ace/utils/palette.h>
 #include <fixmath/fixmath.h>
 #include "game.h"
+#include "match.h"
 #include "sfx.h"
-
-#define INTRO_DEMO_TIMEOUT_FRAMES 400
 
 // Phase durations (frames @50Hz)
 #define INTRO_ACE_HOLD_FRAMES 215
-#define INTRO_TITLE_FRAMES 250
+#define INTRO_IDLE_DEMO_FRAMES (50 * 20)
 // fades for the logo screens
 #define INTRO_FADE_FRAMES 25
 
-// 5 bitplanes = 32 colors: the title artwork needs them; the ACE splash and
-// ball demo just use the lower entries of the same palette
-#define INTRO_BPP 5
+// Welcome prompt band over the artwork's grass. Restores copy from the
+// artwork with blitCopyAligned: x and width must be multiples of 16.
+#define INTRO_PROMPT_Y 238
+#define INTRO_PROMPT_X 64
+#define INTRO_PROMPT_W 192
+#define INTRO_PROMPT_H 8
 
-// Ball demo params
-#define INTRO_BALL_R 8
-#define INTRO_BALL_LEFT 28
-#define INTRO_BALL_RIGHT 292
-#define INTRO_BALL_TOP 128
-#define INTRO_BALL_BOT 202
+// 5 bitplanes = 32 colors: the title artwork needs them; the ACE splash
+// just uses the lower entries of the same palette
+#define INTRO_BPP 5
 
 typedef enum tIntroPhase {
 	INTRO_PH_ACE,
 	INTRO_PH_TITLE,
-	INTRO_PH_DEMO
 } tIntroPhase;
+
+typedef enum tIntroExit {
+	INTRO_EXIT_NONE,
+	INTRO_EXIT_MENU,
+	INTRO_EXIT_DEMO,
+} tIntroExit;
 
 static tView *s_pView;
 static tVPort *s_pVPort;
@@ -173,123 +176,12 @@ static UWORD s_pTitlePal[32];
 #define INTRO_TITLE_W GAME_SCREEN_WIDTH
 #define INTRO_TITLE_H GAME_SCREEN_HEIGHT
 
-static fix16_t s_fwBallX, s_fwBallY, s_fwBallVX, s_fwBallVY;
-
-// Per-page last drawn ball position (double-buffer undraw bookkeeping)
-static tBitMap *s_pPageA, *s_pPageB;
-static UWORD s_uwLastX[2], s_uwLastY[2];
-static UBYTE s_ubHasBall[2];
+// Welcome screen state
+static tIntroExit s_eExit;
+static UWORD s_uwExitFrame;  // fade-out frames left once an exit was chosen
+static UBYTE s_ubPromptWhite; // brightest title palette entry (prompt text)
+static UBYTE s_ubPromptDirty; // pages left to repaint after a blink edge
 static tBitMap *s_pPages[2];
-
-static void introDrawBg(tBitMap *pTarget) {
-	// Stadium backdrop
-	blitRect(pTarget, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, COLOR_BG);
-
-	// Decorative pitch green band with stripes at bottom
-	for(UWORD uwX = 0; uwX < GAME_SCREEN_WIDTH; uwX += 80) {
-		blitRect(pTarget, uwX, 208, 40, 48, COLOR_PITCH);
-		blitRect(pTarget, uwX + 40, 208, 40, 48, COLOR_PITCH_DARK);
-	}
-	blitRect(pTarget, 0, 206, GAME_SCREEN_WIDTH, 2, COLOR_BLACK);
-
-	// Amber title bars
-	blitRect(pTarget, 0, 40, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-	blitRect(pTarget, 0, 106, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-}
-
-// Draws filled ellipse (round-looking on hi-res PAL 1:2 pixels).
-static void introDrawDisc(
-	tBitMap *pBfr, UWORD uwCx, UWORD uwCy, UWORD uwR, UBYTE ubColor
-) {
-	for(WORD wDy = -((WORD)uwR); wDy <= (WORD)uwR; ++wDy) {
-		WORD wHalf = 0;
-		// dx^2 + 4*dy^2 <= r^2
-		WORD wD2 = uwR * uwR - 4 * wDy * wDy;
-		if(wD2 > 0) {
-			wHalf = 1;
-			while(wHalf * wHalf <= wD2) {
-				++wHalf;
-			}
-			--wHalf;
-		}
-		// Skip zero-width rows - zero-width blit corrupts memory
-		if(wHalf < 1) {
-			continue;
-		}
-		blitRect(pBfr, uwCx - wHalf, uwCy + wDy, 2 * wHalf, 1, ubColor);
-	}
-}
-
-static void introDrawBall(tBitMap *pTarget, UWORD uwCx, UWORD uwCy) {
-	introDrawDisc(pTarget, uwCx, uwCy, INTRO_BALL_R, COLOR_BLACK);
-	introDrawDisc(pTarget, uwCx, uwCy, INTRO_BALL_R - 2, COLOR_WHITE);
-}
-
-// Draws overlay texts on given page. Called for both pages every frame so
-// double-buffer pages stay consistent (blink handled by drawing over with bg).
-static void introDrawTexts(tBitMap *pTarget) {
-	UWORD uwCenterX = GAME_SCREEN_WIDTH / 2;
-
-	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX + 2, 62, "XAHBALL", COLOR_BLACK,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX, 60, "XAHBALL", COLOR_AMBER,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX, 84, "A HAXBALL CLONE FOR AMIGA", COLOR_WHITE,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-
-	// Blinking prompt - draw over with bg color when hidden
-	UBYTE ubPromptVisible = (s_uwFrameCnt & 0x1F) < 24;
-	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX, 152, "PRESS FIRE TO START",
-		ubPromptVisible ? COLOR_WHITE : COLOR_BG,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pTarget, uwCenterX, 232, "GAME BY MIRQ", COLOR_AMBER,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-}
-
-// Current fade factor for a phase frame count (ramp up, hold, ramp down)
-static UWORD introFadeFactor(UWORD uwFrame, UWORD uwTotal) {
-	UWORD uwF = uwFrame;
-	if(uwF > uwTotal - INTRO_FADE_FRAMES) {
-		uwF = uwTotal - uwFrame;
-	}
-	if(uwF > INTRO_FADE_FRAMES) { uwF = INTRO_FADE_FRAMES; }
-	return uwF;
-}
-
-// Brightness level (0..15) for paletteDimOcs() from a fade factor
-static UBYTE introFadeLevel(UWORD uwFrame, UWORD uwTotal) {
-	return (introFadeFactor(uwFrame, uwTotal) * 15) / INTRO_FADE_FRAMES;
-}
-
-// Enters the ball demo: restore menu palette + compose demo pages
-static void introEnterDemo(void) {
-	s_ubPhase = INTRO_PH_DEMO;
-	s_uwFrameCnt = 0;
-	gamePaletteLoad(s_pVPort);
-	for(UBYTE i = 0; i < 32; ++i) {
-		s_pVPort->pPalette[i] = s_pVPort->pPalette[i % 16];
-	}
-	for(UBYTE i = 0; i < 32; ++i) {
-		g_pCustom->color[i] = s_pVPort->pPalette[i];
-	}
-	for(UBYTE ubPage = 0; ubPage < 2; ++ubPage) {
-		introDrawBg(s_pPages[ubPage]);
-		introDrawTexts(s_pPages[ubPage]);
-		s_uwLastX[ubPage] = 0;
-		s_uwLastY[ubPage] = 0;
-		s_ubHasBall[ubPage] = 0;
-	}
-}
 
 // The OCS blitter BLTSIZE height field is only 10 bits: max 1024 rows per
 // blit. A full-screen interleaved 5bpp copy is 256*5 = 1280 rows - one
@@ -321,6 +213,45 @@ static void introEnterTitlePhase(void) {
 	}
 	// black-out hardware colors; the loop fades them in
 	paletteDimOcs(s_pTitlePal, g_pCustom->color, 32, 0);
+
+	// Prompt color: the brightest entry of the artwork's own palette
+	UWORD uwBest = 0;
+	s_ubPromptWhite = 1;
+	for(UBYTE i = 1; i < 32; ++i) {
+		UWORD uwC = s_pTitlePal[i];
+		UWORD uwSum = ((uwC >> 8) & 0xF) + ((uwC >> 4) & 0xF) + (uwC & 0xF);
+		if(uwSum > uwBest) {
+			uwBest = uwSum;
+			s_ubPromptWhite = i;
+		}
+	}
+	s_eExit = INTRO_EXIT_NONE;
+	s_ubPromptDirty = 2;
+}
+
+// Blinking welcome prompt: on each blink edge both pages get the artwork
+// restored under the prompt band, then the text if it's in its "on" half
+static void introDrawPrompt(void) {
+	UBYTE ubBlink = s_uwFrameCnt & 0x3F;
+	if(ubBlink == 0 || ubBlink == 44) {
+		s_ubPromptDirty = 2;
+	}
+	if(!s_ubPromptDirty) {
+		return;
+	}
+	--s_ubPromptDirty;
+	tBitMap *pBack = s_pBfr->pBack;
+	blitCopyAligned(
+		s_pTitleLogo, INTRO_PROMPT_X, INTRO_PROMPT_Y, pBack,
+		INTRO_PROMPT_X, INTRO_PROMPT_Y, INTRO_PROMPT_W, INTRO_PROMPT_H
+	);
+	if(ubBlink < 44) {
+		fontDrawStr(
+			g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, INTRO_PROMPT_Y,
+			"PRESS FIRE TO START", s_ubPromptWhite,
+			FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
+		);
+	}
 }
 
 // All intro blits assume interleaved bitmaps at the screen's depth: the .bm
@@ -379,16 +310,8 @@ void gsIntroCreate(void) {
 	// Palette comes from the title image's own .plt - no hand-typed table
 	paletteLoadFromPath("data/title.plt", s_pTitlePal, 32);
 
-	s_fwBallX = F16(160);
-	s_fwBallY = F16(160);
-	s_fwBallVX = F16(2.8f);
-	s_fwBallVY = F16(-1.9f);
-
-	// Page pointers for the demo-phase undraw bookkeeping
-	s_pPageA = s_pBfr->pBack;
-	s_pPageB = s_pBfr->pFront;
-	s_pPages[0] = s_pPageA;
-	s_pPages[1] = s_pPageB;
+	s_pPages[0] = s_pBfr->pBack;
+	s_pPages[1] = s_pBfr->pFront;
 
 	introValidateLayout();
 	introEnterAce();
@@ -482,88 +405,52 @@ void gsIntroLoop(void) {
 
 			if(s_bAceFadeoutRatio < 0) {
 				introExitAce();
-				// missing title.bm must not crash the blit - fall through
+				// missing title.bm must not crash the blit - skip to the menu
 				if(s_pTitleLogo) {
 					introEnterTitlePhase();
 				}
 				else {
-					introEnterDemo();
+					stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
+					return;
 				}
 			}
 			break;
 		case INTRO_PH_TITLE:
-			if(ubSkip || s_uwFrameCnt >= INTRO_TITLE_FRAMES) {
-				introEnterDemo();
+			if(s_eExit == INTRO_EXIT_NONE) {
+				if(ubSkip) {
+					sfxPlay(SFX_CONFIRM, 64);
+					s_eExit = INTRO_EXIT_MENU;
+					s_uwExitFrame = INTRO_FADE_FRAMES / 2;
+				}
+				else if(s_uwFrameCnt >= INTRO_IDLE_DEMO_FRAMES) {
+					s_eExit = INTRO_EXIT_DEMO;
+					s_uwExitFrame = INTRO_FADE_FRAMES;
+				}
 			}
-			else {
-				// Static screen: only the palette fades, ALL 32 entries -
-				// dimming just 16 left the upper half of the 5bpp image
-				// black while the lower half showed at half brightness
+			if(s_eExit != INTRO_EXIT_NONE) {
+				// Quick fade to black, then hand over
+				if(!s_uwExitFrame) {
+					if(s_eExit == INTRO_EXIT_DEMO) {
+						matchStartDemo();
+					}
+					else {
+						stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
+					}
+					return;
+				}
+				--s_uwExitFrame;
+				UWORD uwTotal = (s_eExit == INTRO_EXIT_DEMO) ? INTRO_FADE_FRAMES : INTRO_FADE_FRAMES / 2;
+				paletteDimOcs(s_pTitlePal, g_pCustom->color, 32, (s_uwExitFrame * 15) / uwTotal);
+			}
+			else if(s_uwFrameCnt <= INTRO_FADE_FRAMES) {
+				// Fade in - ALL 32 entries: dimming just 16 left the upper
+				// half of the 5bpp image black while the lower half showed
 				paletteDimOcs(
 					s_pTitlePal, g_pCustom->color, 32,
-					introFadeLevel(s_uwFrameCnt, INTRO_TITLE_FRAMES)
+					(s_uwFrameCnt * 15) / INTRO_FADE_FRAMES
 				);
 			}
-			break;
-		case INTRO_PH_DEMO:
-			if(ubSkip) {
-				sfxPlay(SFX_CONFIRM, 64);
-				stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
-				return;
-			}
-			if(s_uwFrameCnt >= INTRO_DEMO_TIMEOUT_FRAMES) {
-				stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
-				return;
-			}
-
-			// Ball demo physics - bounce inside box
-			fix16_t fwNextX = s_fwBallX + s_fwBallVX;
-			fix16_t fwNextY = s_fwBallY + s_fwBallVY;
-			UBYTE ubBounced = 0;
-			if(
-				fwNextX < F16(INTRO_BALL_LEFT + INTRO_BALL_R) ||
-				fwNextX > F16(INTRO_BALL_RIGHT - INTRO_BALL_R)
-			) {
-				s_fwBallVX = -s_fwBallVX;
-				ubBounced = 1;
-			}
-			if(
-				fwNextY < F16(INTRO_BALL_TOP + INTRO_BALL_R) ||
-				fwNextY > F16(INTRO_BALL_BOT - INTRO_BALL_R)
-			) {
-				s_fwBallVY = -s_fwBallVY;
-				ubBounced = 1;
-			}
-			if(ubBounced) {
-				sfxPlay(SFX_BOUNCE, 40);
-				fwNextX = s_fwBallX + s_fwBallVX;
-				fwNextY = s_fwBallY + s_fwBallVY;
-			}
-			s_fwBallX = fwNextX;
-			s_fwBallY = fwNextY;
-
-			// Update ball ONLY on the off-page (pBack) - the displayed page
-			// must never be touched or the beam catches the erase/draw. Each
-			// page keeps its own last ball position: when a page becomes pBack
-			// again, its own stale ball gets erased first.
-			tBitMap *pDraw = s_pBfr->pBack;
-			UBYTE ubPage = (pDraw == s_pPageB) ? 1 : 0;
-			UWORD uwX = fix16_to_int(s_fwBallX);
-			UWORD uwY = fix16_to_int(s_fwBallY);
-			if(s_ubHasBall[ubPage]) {
-				blitRect(
-					pDraw,
-					s_uwLastX[ubPage] - INTRO_BALL_R - 1,
-					s_uwLastY[ubPage] - INTRO_BALL_R - 1,
-					2 * INTRO_BALL_R + 3, 2 * INTRO_BALL_R + 3, COLOR_BG
-				);
-			}
-			introDrawBall(pDraw, uwX, uwY);
-			s_uwLastX[ubPage] = uwX;
-			s_uwLastY[ubPage] = uwY;
-			s_ubHasBall[ubPage] = 1;
-
-			introDrawTexts(pDraw);
+			introDrawPrompt();
 			break;
 	}
 

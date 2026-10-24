@@ -1,6 +1,7 @@
 /* XAHBall - team select state
- * First human player picks left team, second human (or same player) picks
- * right team. Fire confirms, left/right cycles teams.
+ * Left team first, then right team, with the menu controls (keyboard or
+ * joystick in port 2). Fire confirms, left/right cycles teams, ESC steps
+ * back to the left pick / the menu.
  */
 #include "teamsel.h"
 
@@ -15,9 +16,9 @@
 #include <ace/utils/extview.h>
 #include <ace/utils/font.h>
 #include "game.h"
-#include "input_slots.h"
 #include "sfx.h"
 #include "teams.h"
+#include "ui.h"
 
 static tView *s_pView;
 static tVPort *s_pVPort;
@@ -32,86 +33,76 @@ typedef enum tPickPhase {
 static tPickPhase s_ubPhase;
 static UBYTE s_ubPickLeft;  // team idx currently highlighted for left
 static UBYTE s_ubPickRight;
-static UBYTE s_ubDevicePicker;       // device cycling the left team
-static UBYTE s_ubDevicePickerRight;  // device cycling the right team
+// Pages left to redraw (2 after every change - both buffers catch up)
+static UBYTE s_ubDirty;
 
-static void teamselFindPickers(void) {
-	UBYTE pHumans[SLOT_COUNT];
-	UBYTE ubHumanCount = 0;
-	for(UBYTE i = 0; i < SLOT_COUNT; ++i) {
-		if(g_sMatchConfig.ubSlotDevice[i] != DEVICE_AI) {
-			pHumans[ubHumanCount++] = g_sMatchConfig.ubSlotDevice[i];
-		}
-	}
-	if(ubHumanCount == 0) {
-		s_ubDevicePicker = DEVICE_KB1;
-	}
-	else {
-		s_ubDevicePicker = pHumans[0];
-	}
-	// Right team: second human if there is one, else same picker
-	s_ubDevicePickerRight = (ubHumanCount >= 2) ? pHumans[1] : s_ubDevicePicker;
-}
+#define TEAMSEL_PANEL_Y UI_CONTENT_Y
+#define TEAMSEL_PANEL_H 160
+#define TEAMSEL_FLAG_W 96
+#define TEAMSEL_FLAG_H 64
+#define TEAMSEL_FLAG_Y (TEAMSEL_PANEL_Y + 34)
 
 static void teamselDrawPanel(
-	UBYTE ubTeamIdx, UWORD uwCenterX, UBYTE ubIsActive
+	tBitMap *pBack, UBYTE ubTeamIdx, UWORD uwCenterX, UBYTE ubIsActive
 ) {
-	tBitMap *pBack = s_pBfr->pBack;
-	UBYTE ubColorText = ubIsActive ? COLOR_AMBER : COLOR_GRAY;
 	UBYTE ubColorName = ubIsActive ? COLOR_WHITE : COLOR_GRAY;
 
-	// Flag
-	UWORD uwFlagW = 120, uwFlagH = 80;
+	// Flag in a frame: amber = this side is picking now
 	teamDrawFlag(
-		pBack, uwCenterX - uwFlagW / 2, 70, uwFlagW, uwFlagH, ubTeamIdx
+		pBack, uwCenterX - TEAMSEL_FLAG_W / 2, TEAMSEL_FLAG_Y,
+		TEAMSEL_FLAG_W, TEAMSEL_FLAG_H, ubTeamIdx
 	);
-	// Frame around flag
-	UWORD uwFx = uwCenterX - uwFlagW / 2 - 2, uwFy = 68;
+	UWORD uwFx = uwCenterX - TEAMSEL_FLAG_W / 2 - 2, uwFy = TEAMSEL_FLAG_Y - 2;
 	UBYTE ubFrame = ubIsActive ? COLOR_AMBER : COLOR_GRAY;
-	blitRect(pBack, uwFx, uwFy, uwFlagW + 4, 2, ubFrame);
-	blitRect(pBack, uwFx, uwFy + uwFlagH + 2, uwFlagW + 4, 2, ubFrame);
-	blitRect(pBack, uwFx, uwFy, 2, uwFlagH + 4, ubFrame);
-	blitRect(pBack, uwFx + uwFlagW + 2, uwFy, 2, uwFlagH + 4, ubFrame);
+	blitRect(pBack, uwFx, uwFy, TEAMSEL_FLAG_W + 4, 2, ubFrame);
+	blitRect(pBack, uwFx, uwFy + TEAMSEL_FLAG_H + 2, TEAMSEL_FLAG_W + 4, 2, ubFrame);
+	blitRect(pBack, uwFx, uwFy, 2, TEAMSEL_FLAG_H + 4, ubFrame);
+	blitRect(pBack, uwFx + TEAMSEL_FLAG_W + 2, uwFy, 2, TEAMSEL_FLAG_H + 4, ubFrame);
 
+	UWORD uwNameY = TEAMSEL_FLAG_Y + TEAMSEL_FLAG_H + 10;
 	fontDrawStr(
-		g_pGameFont, pBack, uwCenterX, 166, g_pTeams[ubTeamIdx].szName,
-		ubColorName, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+		g_pGameFont, pBack, uwCenterX, uwNameY, g_pTeams[ubTeamIdx].szName,
+		ubColorName, FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
 	);
-	// NOTE: never draw empty strings - zero-width blit corrupts memory
 	if(ubIsActive) {
 		fontDrawStr(
-			g_pGameFont, pBack, uwCenterX, 186, "PRESS FIRE",
-			ubColorText, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
+			g_pGameFont, pBack, uwCenterX - TEAMSEL_FLAG_W / 2 - 10, TEAMSEL_FLAG_Y + TEAMSEL_FLAG_H / 2 - 3,
+			"<", COLOR_AMBER, FONT_COOKIE | FONT_LEFT, s_pTextBitMap
+		);
+		fontDrawStr(
+			g_pGameFont, pBack, uwCenterX + TEAMSEL_FLAG_W / 2 + 6, TEAMSEL_FLAG_Y + TEAMSEL_FLAG_H / 2 - 3,
+			">", COLOR_AMBER, FONT_COOKIE | FONT_LEFT, s_pTextBitMap
 		);
 	}
 }
 
 static void teamselDrawPage(tBitMap *pBack) {
-
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, COLOR_BG);
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-	blitRect(pBack, 0, GAME_SCREEN_HEIGHT - 2, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
+	uiDrawPanel(pBack, 8, TEAMSEL_PANEL_Y, GAME_SCREEN_WIDTH - 16, TEAMSEL_PANEL_H, 1);
 
 	fontDrawStr(
-		g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, 24, "SELECT TEAMS", COLOR_AMBER,
+		g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, TEAMSEL_PANEL_Y + 6, "SELECT TEAMS", COLOR_AMBER,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
+	);
+	fontDrawStr(
+		g_pGameFont, pBack, 84, TEAMSEL_PANEL_Y + 20, "LEFT", COLOR_ACCENT,
 		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 	);
 	fontDrawStr(
-		g_pGameFont, pBack, 80, 44, "LEFT", COLOR_WHITE,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pBack, 240, 44, "RIGHT", COLOR_WHITE,
+		g_pGameFont, pBack, 236, TEAMSEL_PANEL_Y + 20, "RIGHT", COLOR_ACCENT,
 		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 	);
 
-	teamselDrawPanel(s_ubPickLeft, 80, s_ubPhase == PICK_LEFT);
-	teamselDrawPanel(s_ubPickRight, 240, s_ubPhase == PICK_RIGHT);
+	teamselDrawPanel(pBack, s_ubPickLeft, 84, s_ubPhase == PICK_LEFT);
+	teamselDrawPanel(pBack, s_ubPickRight, 236, s_ubPhase == PICK_RIGHT);
 
-	// VS
 	fontDrawStr(
-		g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, 100, "VS", COLOR_ACCENT,
-		FONT_COOKIE | FONT_HCENTER | FONT_VCENTER, s_pTextBitMap
+		g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, TEAMSEL_FLAG_Y + TEAMSEL_FLAG_H / 2 - 3, "VS", COLOR_WHITE,
+		FONT_COOKIE | FONT_HCENTER | FONT_SHADOW, s_pTextBitMap
+	);
+	fontDrawStr(
+		g_pGameFont, pBack, GAME_SCREEN_WIDTH / 2, TEAMSEL_PANEL_Y + TEAMSEL_PANEL_H - 16,
+		(s_ubPhase == PICK_LEFT) ? "L/R: TEAM   FIRE: PICK" : "FIRE: KICK OFF   ESC: BACK",
+		COLOR_GRAY, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 	);
 }
 
@@ -141,10 +132,12 @@ void gsTeamSelCreate(void) {
 	s_ubPhase = PICK_LEFT;
 	s_ubPickLeft = g_sMatchConfig.ubTeamLeft;
 	s_ubPickRight = g_sMatchConfig.ubTeamRight;
-	teamselFindPickers();
 
+	uiDrawBackdrop(s_pBfr->pBack);
+	uiDrawBackdrop(s_pBfr->pFront);
 	teamselDrawPage(s_pBfr->pBack);
 	teamselDrawPage(s_pBfr->pFront);
+	s_ubDirty = 0;
 
 	viewLoad(s_pView);
 	logBlockEnd("gsTeamSelCreate");
@@ -152,36 +145,44 @@ void gsTeamSelCreate(void) {
 }
 
 void gsTeamSelLoop(void) {
-	if(keyUse(KEY_ESCAPE)) {
-		sfxPlay(SFX_BACK, 64);
-		stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
-		return;
-	}
-
-	// Per-frame off-page redraw - pages swap every frame
-	teamselDrawPage(s_pBfr->pBack);
-
-	UBYTE ubDevice = (s_ubPhase == PICK_LEFT) ? s_ubDevicePicker : s_ubDevicePickerRight;
-
-	if(keyUse(KEY_LEFT) || keyUse(KEY_RIGHT) || keyUse(KEY_A) || keyUse(KEY_D) || joyUse(JOY1_LEFT) || joyUse(JOY1_RIGHT)) {
-		UBYTE ubRight = keyCheck(KEY_RIGHT) || keyCheck(KEY_D) || joyCheck(JOY1_RIGHT);
-		BYTE bDir = ubRight ? 1 : -1;
-		UBYTE *pPick = (s_ubPhase == PICK_LEFT) ? &s_ubPickLeft : &s_ubPickRight;
-		*pPick = (*pPick + bDir + TEAM_COUNT) % TEAM_COUNT;
-		sfxPlay(SFX_MOVE, 48);
-	}
-	else if(keyUse(KEY_RETURN) || keyUse(KEY_X) || joyUse(JOY1_FIRE)) {
-		if(s_ubPhase == PICK_LEFT) {
-			g_sMatchConfig.ubTeamLeft = s_ubPickLeft;
-			s_ubPhase = PICK_RIGHT;
-			sfxPlay(SFX_CONFIRM, 64);
+	tUiNav eNav = uiNavPoll();
+	switch(eNav) {
+		case UI_NAV_BACK:
+			sfxPlay(SFX_BACK, 64);
+			if(s_ubPhase == PICK_RIGHT) {
+				s_ubPhase = PICK_LEFT;
+				s_ubDirty = 2;
+				break;
+			}
+			stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
+			return;
+		case UI_NAV_LEFT:
+		case UI_NAV_RIGHT: {
+			BYTE bDir = (eNav == UI_NAV_RIGHT) ? 1 : -1;
+			UBYTE *pPick = (s_ubPhase == PICK_LEFT) ? &s_ubPickLeft : &s_ubPickRight;
+			*pPick = (*pPick + bDir + TEAM_COUNT) % TEAM_COUNT;
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+			break;
 		}
-		else {
-			g_sMatchConfig.ubTeamRight = s_ubPickRight;
+		case UI_NAV_FIRE:
 			sfxPlay(SFX_CONFIRM, 64);
+			if(s_ubPhase == PICK_LEFT) {
+				g_sMatchConfig.ubTeamLeft = s_ubPickLeft;
+				s_ubPhase = PICK_RIGHT;
+				s_ubDirty = 2;
+				break;
+			}
+			g_sMatchConfig.ubTeamRight = s_ubPickRight;
 			stateChange(g_pGameStateManager, &g_pGameStates[STATE_MATCH]);
 			return;
-		}
+		default:
+			break;
+	}
+
+	if(s_ubDirty) {
+		teamselDrawPage(s_pBfr->pBack);
+		--s_ubDirty;
 	}
 
 	viewProcessManagers(s_pView);

@@ -1,6 +1,8 @@
-/* XAHBall - controller setup state
+/* XAHBall - advanced (custom) controller setup state
  * Lists player slots for the current team size; each slot cycles through
- * available devices. Only slots of active team size are shown.
+ * available devices. Only slots of active team size are shown. The simple
+ * presets live in the main menu (controls.c); leaving this screen re-checks
+ * whether the edited setup still equals a preset, else it becomes CUSTOM.
  */
 #include "setup.h"
 
@@ -15,9 +17,11 @@
 #include <ace/utils/extview.h>
 #include <ace/utils/font.h>
 #include <stdio.h>
+#include "controls.h"
 #include "game.h"
 #include "input_slots.h"
 #include "sfx.h"
+#include "ui.h"
 
 static tView *s_pView;
 static tVPort *s_pVPort;
@@ -28,16 +32,26 @@ static tTextBitMap *s_pTextBitMap;
 static UBYTE s_pVisibleRows[2 * SLOTS_PER_SIDE];
 static UBYTE s_ubRowCount;
 static UBYTE s_ubRow; // currently selected row
+// Pages left to redraw (2 after every change - both buffers catch up)
+static UBYTE s_ubDirty;
 
 static const char *s_pDeviceDesc[DEVICE_COUNT] = {
-	"AI BOT",
-	"JOYSTICK 1",
-	"JOYSTICK 2",
-	"JOYSTICK 3 (PARALLEL)",
-	"JOYSTICK 4 (PARALLEL)",
-	"ARROWS + R-SHIFT",
-	"WASD + L-SHIFT",
+	"COMPUTER PLAYER",
+	"JOYSTICK IN PORT 2 - GAME PORT",
+	"JOYSTICK IN PORT 1 - MOUSE PORT",
+	"PARALLEL ADAPTER - PORT 3",
+	"PARALLEL ADAPTER - PORT 4",
+	"ARROWS  KICK: RIGHT SHIFT",
+	"W S A D  KICK: LEFT SHIFT",
 };
+
+#define SETUP_PANEL_X 24
+#define SETUP_PANEL_Y UI_CONTENT_Y
+#define SETUP_PANEL_W 272
+#define SETUP_PANEL_H 160
+#define SETUP_ROW_STEP 11
+#define SETUP_LABEL_X (SETUP_PANEL_X + 20)
+#define SETUP_VALUE_CX (SETUP_PANEL_X + 180)
 
 // Slots active for the current team size: 0..n-1 (team A), 3..3+n-1 (team B)
 static UBYTE setupIsSlotActive(UBYTE ubSlot) {
@@ -71,6 +85,22 @@ static void setupResolveDuplicates(void) {
 	}
 }
 
+// Another visible slot uses the same (non-AI) device - it will fall back to
+// CPU on exit, so warn while editing
+static UBYTE setupIsDuplicate(UBYTE ubSlot) {
+	UBYTE ubDev = g_sMatchConfig.ubSlotDevice[ubSlot];
+	if(ubDev == DEVICE_AI) {
+		return 0;
+	}
+	for(UBYTE i = 0; i < s_ubRowCount; ++i) {
+		UBYTE ubOther = s_pVisibleRows[i];
+		if(ubOther != ubSlot && g_sMatchConfig.ubSlotDevice[ubOther] == ubDev) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void setupRefreshRows(void) {
 	s_ubRowCount = 0;
 	for(UBYTE i = 0; i < g_sMatchConfig.ubPlayersPerSide; ++i) {
@@ -84,60 +114,65 @@ static void setupRefreshRows(void) {
 	}
 }
 
-static void setupDrawPage(tBitMap *pBack) {
+static void setupDrawText(tBitMap *pDst, UWORD uwX, UWORD uwY, const char *sz, UBYTE ubColor, UBYTE ubFlags) {
+	fontDrawStr(g_pGameFont, pDst, uwX, uwY, sz, ubColor, ubFlags | FONT_COOKIE, s_pTextBitMap);
+}
+
+static void setupDrawPanel(tBitMap *pDst) {
 	UWORD uwCenterX = GAME_SCREEN_WIDTH / 2;
+	uiDrawPanel(pDst, SETUP_PANEL_X, SETUP_PANEL_Y, SETUP_PANEL_W, SETUP_PANEL_H, 1);
+	setupDrawText(pDst, uwCenterX, SETUP_PANEL_Y + 6, "CUSTOM CONTROLS", COLOR_AMBER, FONT_HCENTER | FONT_SHADOW);
 
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, COLOR_BG);
-	blitRect(pBack, 0, 0, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-	blitRect(pBack, 0, GAME_SCREEN_HEIGHT - 2, GAME_SCREEN_WIDTH, 2, COLOR_AMBER);
-
-	fontDrawStr(
-		g_pGameFont, pBack, uwCenterX, 24, "CONTROLLERS", COLOR_AMBER,
-		FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-
-	UWORD uwLineStep = g_pGameFont->uwHeight + 8;
-	UWORD uwTopA = 64;
-	UWORD uwTopB = uwTopA + (SLOTS_PER_SIDE + 1) * uwLineStep;
-
-	fontDrawStr(
-		g_pGameFont, pBack, 12, uwTopA - uwLineStep, "TEAM A (LEFT)", COLOR_WHITE,
-		FONT_COOKIE | FONT_LEFT, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pBack, 12, uwTopB - uwLineStep, "TEAM B (RIGHT)", COLOR_WHITE,
-		FONT_COOKIE | FONT_LEFT, s_pTextBitMap
-	);
+	// Team headers + rows: each team block = header line + up to 3 rows
+	UWORD uwTopA = SETUP_PANEL_Y + 20;
+	UWORD uwTopB = uwTopA + (g_sMatchConfig.ubPlayersPerSide + 1) * SETUP_ROW_STEP + 4;
+	setupDrawText(pDst, SETUP_LABEL_X - 8, uwTopA, "LEFT TEAM", COLOR_ACCENT, FONT_LEFT);
+	setupDrawText(pDst, SETUP_LABEL_X - 8, uwTopB, "RIGHT TEAM", COLOR_ACCENT, FONT_LEFT);
 
 	for(UBYTE ubRowIdx = 0; ubRowIdx < s_ubRowCount; ++ubRowIdx) {
 		UBYTE ubSlot = s_pVisibleRows[ubRowIdx];
 		UBYTE ubIsTeamA = ubSlot < SLOTS_PER_SIDE;
-		UWORD uwY = (ubIsTeamA ? uwTopA : uwTopB) + (ubSlot % SLOTS_PER_SIDE) * uwLineStep;
+		UWORD uwY = (ubIsTeamA ? uwTopA : uwTopB) + (ubSlot % SLOTS_PER_SIDE + 1) * SETUP_ROW_STEP;
 		UBYTE ubIsSel = (s_ubRow == ubRowIdx);
 		char szLabel[12];
 		sprintf(szLabel, "PLAYER %d", (ubSlot % SLOTS_PER_SIDE) + 1);
-		fontDrawStr(
-			g_pGameFont, pBack, 12, uwY, szLabel,
-			ubIsSel ? COLOR_AMBER : COLOR_GRAY,
-			FONT_COOKIE | FONT_LEFT, s_pTextBitMap
+		if(ubIsSel) {
+			blitRect(pDst, SETUP_PANEL_X + 3, uwY - 2, SETUP_PANEL_W - 6, 10, COLOR_BG);
+		}
+		setupDrawText(pDst, SETUP_LABEL_X, uwY, szLabel, ubIsSel ? COLOR_AMBER : COLOR_WHITE, FONT_LEFT | FONT_SHADOW);
+		UBYTE ubDevColor = setupIsDuplicate(ubSlot) ? COLOR_RED
+			: (ubIsSel ? COLOR_WHITE : COLOR_ACCENT);
+		setupDrawText(
+			pDst, SETUP_VALUE_CX, uwY, g_pDeviceNames[g_sMatchConfig.ubSlotDevice[ubSlot]],
+			ubDevColor, FONT_HCENTER | FONT_SHADOW
 		);
-		fontDrawStr(
-			g_pGameFont, pBack, 72, uwY, g_pDeviceNames[g_sMatchConfig.ubSlotDevice[ubSlot]],
-			ubIsSel ? COLOR_AMBER : COLOR_WHITE,
-			FONT_COOKIE | FONT_LEFT, s_pTextBitMap
-		);
+		if(ubIsSel) {
+			setupDrawText(pDst, SETUP_VALUE_CX - 52, uwY, "<", COLOR_AMBER, FONT_LEFT);
+			setupDrawText(pDst, SETUP_VALUE_CX + 48, uwY, ">", COLOR_AMBER, FONT_LEFT);
+		}
 	}
 
-	// Hint + selected device description
+	// Selected device description (or a duplicate warning) + key hint
 	UBYTE ubSelSlot = s_pVisibleRows[s_ubRow];
-	fontDrawStr(
-		g_pGameFont, pBack, uwCenterX, 202, s_pDeviceDesc[g_sMatchConfig.ubSlotDevice[ubSelSlot]],
-		COLOR_ACCENT, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
-	fontDrawStr(
-		g_pGameFont, pBack, uwCenterX, 222, "L/R: DEVICE  U/D: SLOT  FIRE: DONE, DUPES->AI",
-		COLOR_GRAY, FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
-	);
+	UWORD uwInfoY = SETUP_PANEL_Y + SETUP_PANEL_H - 30;
+	blitRect(pDst, SETUP_PANEL_X + 8, uwInfoY - 5, SETUP_PANEL_W - 16, 1, COLOR_GRAY);
+	if(setupIsDuplicate(ubSelSlot)) {
+		setupDrawText(pDst, uwCenterX, uwInfoY, "ALSO USED BY ANOTHER PLAYER", COLOR_RED, FONT_HCENTER);
+	}
+	else {
+		setupDrawText(
+			pDst, uwCenterX, uwInfoY, s_pDeviceDesc[g_sMatchConfig.ubSlotDevice[ubSelSlot]],
+			COLOR_WHITE, FONT_HCENTER
+		);
+	}
+	setupDrawText(pDst, uwCenterX, uwInfoY + 14, "L/R: DEVICE   FIRE: DONE", COLOR_GRAY, FONT_HCENTER);
+}
+
+static void setupLeave(UBYTE ubSfx) {
+	setupResolveDuplicates();
+	controlsDetectPreset();
+	sfxPlay(ubSfx, 64);
+	stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
 }
 
 void gsSetupCreate(void) {
@@ -164,8 +199,11 @@ void gsSetupCreate(void) {
 	s_pTextBitMap = fontCreateTextBitMap(320, g_pGameFont->uwHeight + 8);
 	setupRefreshRows();
 
-	setupDrawPage(s_pBfr->pBack);
-	setupDrawPage(s_pBfr->pFront);
+	uiDrawBackdrop(s_pBfr->pBack);
+	uiDrawBackdrop(s_pBfr->pFront);
+	setupDrawPanel(s_pBfr->pBack);
+	setupDrawPanel(s_pBfr->pFront);
+	s_ubDirty = 0;
 
 	viewLoad(s_pView);
 	logBlockEnd("gsSetupCreate");
@@ -173,41 +211,42 @@ void gsSetupCreate(void) {
 }
 
 void gsSetupLoop(void) {
-	if(keyUse(KEY_ESCAPE)) {
-		setupResolveDuplicates();
-		sfxPlay(SFX_BACK, 64);
-		stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
-		return;
+	tUiNav eNav = uiNavPoll();
+	switch(eNav) {
+		case UI_NAV_BACK:
+			setupLeave(SFX_BACK);
+			return;
+		case UI_NAV_FIRE:
+			setupLeave(SFX_CONFIRM);
+			return;
+		case UI_NAV_UP:
+			s_ubRow = (s_ubRow + s_ubRowCount - 1) % s_ubRowCount;
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+			break;
+		case UI_NAV_DOWN:
+			s_ubRow = (s_ubRow + 1) % s_ubRowCount;
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+			break;
+		case UI_NAV_LEFT:
+		case UI_NAV_RIGHT: {
+			// No uniqueness check here - duplicates are allowed while editing
+			// (shown red) and resolved to AI by setupResolveDuplicates()
+			UBYTE ubSlot = s_pVisibleRows[s_ubRow];
+			UBYTE *pDev = &g_sMatchConfig.ubSlotDevice[ubSlot];
+			*pDev = (*pDev + DEVICE_COUNT + (eNav == UI_NAV_RIGHT ? 1 : -1)) % DEVICE_COUNT;
+			sfxPlay(SFX_MOVE, 48);
+			s_ubDirty = 2;
+			break;
+		}
+		default:
+			break;
 	}
 
-	// Per-frame off-page redraw - pages swap every frame
-	setupDrawPage(s_pBfr->pBack);
-
-	if(keyUse(KEY_UP) || keyUse(KEY_W) || joyUse(JOY1_UP)) {
-		s_ubRow = (s_ubRow + s_ubRowCount - 1) % s_ubRowCount;
-		sfxPlay(SFX_MOVE, 48);
-	}
-	else if(keyUse(KEY_DOWN) || keyUse(KEY_S) || joyUse(JOY1_DOWN)) {
-		s_ubRow = (s_ubRow + 1) % s_ubRowCount;
-		sfxPlay(SFX_MOVE, 48);
-	}
-	else if(keyUse(KEY_LEFT) || keyUse(KEY_RIGHT) || keyUse(KEY_A) || keyUse(KEY_D) || joyUse(JOY1_LEFT) || joyUse(JOY1_RIGHT)) {
-		UBYTE ubRight = keyCheck(KEY_RIGHT) || keyCheck(KEY_D) || joyCheck(JOY1_RIGHT);
-		BYTE bDir = ubRight ? 1 : -1;
-		UBYTE ubSlot = s_pVisibleRows[s_ubRow];
-		BYTE bDev = g_sMatchConfig.ubSlotDevice[ubSlot] + bDir;
-		if(bDev < 0) { bDev = DEVICE_COUNT - 1; }
-		if(bDev >= DEVICE_COUNT) { bDev = DEVICE_AI; }
-		// No uniqueness check here - duplicates are allowed while editing and
-		// resolved to AI by setupResolveDuplicates() when leaving the screen
-		g_sMatchConfig.ubSlotDevice[ubSlot] = bDev;
-		sfxPlay(SFX_MOVE, 48);
-	}
-	else if(keyUse(KEY_RETURN) || keyUse(KEY_X) || joyUse(JOY1_FIRE)) {
-		setupResolveDuplicates();
-		sfxPlay(SFX_CONFIRM, 64);
-		stateChange(g_pGameStateManager, &g_pGameStates[STATE_MENU]);
-		return;
+	if(s_ubDirty) {
+		setupDrawPanel(s_pBfr->pBack);
+		--s_ubDirty;
 	}
 
 	viewProcessManagers(s_pView);

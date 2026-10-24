@@ -215,7 +215,10 @@ s_pVPort->pPalette[COLOR_KIT_A] = kitRGB;   // before viewLoad, or via copper
 - `joyEnableParallel()` enables JOY3/JOY4 on the parallel port (returns 0 if
   absent — ignore).
 - Keyboard player 1: arrows + Right Shift (kick). Player 2: WSAD + Left Shift
-  (kick). Menu navigation accepts BOTH keyboard sets + JOY1.
+  (kick). Menu navigation (`uiNavPoll`, ui.c) accepts BOTH keyboard sets +
+  JOY1 only - **ACE JOY1 is physical PORT 2** (joystick port), JOY2 is PORT 1
+  (mouse port). A mouse in port 1 reads as joystick directions, so port 1 is
+  never polled for menus. UI texts name ports physically ("JOY PORT 2").
 - Controller setup screen: NO uniqueness check while cycling a slot's device
   (duplicates display freely); both exit paths (fire/ESC) run
   `setupResolveDuplicates()` — each non-AI device stays with its first slot in
@@ -277,6 +280,16 @@ ptplayerProcess();                                    // each frame
   `#define GENERIC_MAIN_LOOP_CONDITION gameIsRunning() && pCurrent`.
 
 ## 13. Testing loop (no working bridge client needed)
+
+**Preferred: `tools/emu.sh`** (deploy / start / keys / shot / stop). FS-UAE
+(Bartman's build) runs inside a nested **Xephyr** display (:5), so XTEST keys
+and `import` screenshots hit only the emulator - no focus stealing, no stray
+keys on the desktop. Config `tools/a500-xephyr.fs-uae`: without a window
+manager `fullscreen = 1` collapses to a 1x1 window, and the default
+fs-uae-drawn titlebar pushes the picture off-center - use `fullscreen = 0`,
+`system_titlebar = 1` (= no titlebar without a WM), `window_x/y = 0`,
+`zoom = full`, and keep window size == Xephyr screen size (1152x864, 3x).
+Host arrows + right ctrl = Amiga joystick in port 2. Boot to menu ~30 s.
 
 The devbench bridge client (`a.exe`) is built `-m68020` with ~724 KB of BSS —
 it cannot run on a 512K+512K A500 (Guru/err 103), so MCP-driven testing on the
@@ -427,4 +440,58 @@ Environment gotchas:
   DMA-toggles 50x/s - audible on hardware). `ptplayerStop()` hard-resets
   channel state and likewise kills future sfx. Let samples ring out - they
   self-terminate (max ~1.4s here). Reference: AMIner never stops channels.
+- **Font glyph edits don't rebuild the .fnt:** ACE's `convertFont` DEPENDS
+  on the glyph DIRECTORY, whose mtime changes only when files are added or
+  removed - after editing an existing glyph PNG run `touch game/res/silkscreen`.
+  Glyphs exist for A-Z a-z 0-9 space - / : ! + . ( ) < > _ only; any other
+  char in a string renders as nothing.
 - **Font bitmap NULL**: `fontDestroyTextBitMap(NULL)` crashes (no guard).
+
+## 17. 0.4 findings (menus, presets, AI levels, demo mode)
+
+- **ACE joy manager overflow (fixed in tools/patches/ace-local.patch):**
+  `tJoyManager.pStates[20]`, but with `joyEnableParallel()` `joyProcess()`
+  writes 24 codes (JOY4_FIRE2 = 23) - 4 bytes past the struct EVERY frame,
+  into whatever global the linker put next. Found when a static bitmap
+  pointer in ui.c turned NULL during the intro (`nm -n` showed it right
+  after `g_sJoyManager`). Symptom class: a global that "randomly" becomes 0.
+  Method that found it: show values on screen at state transitions, then
+  `m68k-amiga-elf-nm -n game-build/xahball.elf` for the neighbours.
+- **palette_conv rounds 8-bit channels UP** (189 -> 0xC, not 0xB): art whose
+  palette sits between OCS levels shows brighter + hue-shifted (dark colors
+  worst). Keep every .gpl entry at exact n*17 - `tools/make_title.py`
+  quantizes in 12-bit space, `tools/snap_ocs_palette.py` fixes existing art.
+- **Menu-style screens (ui.c):** shared stadium backdrop (40 KB chip, loaded
+  once at boot, `uiDrawBackdrop` once per page at create - never per frame)
+  + panels. Content changes redraw only the panel via a per-page dirty
+  counter (`s_ubDirty = 2` on every change: both buffers must catch up).
+  Full-screen interleaved copies are banded (BLTSIZE height = 10 bits).
+- **Controls:** controls.c holds presets per team size (index 0 = 1P VS
+  CPU everywhere, so a team size change keeps it). `ubControlPreset` =
+  preset index or `CONTROL_PRESET_CUSTOM`; leaving the custom screen calls
+  `controlsDetectPreset()` so an edit that matches a preset shows its name.
+- **AI:** the old "wrong side of the ball" detour target (ball.x + 14, still
+  on the wrong side) was a FIXED POINT - bots parked there for the rest of
+  the match; plus wall/corner-pinned balls deadlocked two attackers. AI-vs-
+  AI went from ~1 goal / 9 kicks per 3 min to ~10 goals / 80+ kicks after
+  fixing both. host_sim seeds now jitter kickoff positions (before, every
+  seed replayed the same game). `[5c]` checks HARD beats NORMAL at every
+  team size - lower shot alignment / wider post aim LOST games; prediction
+  lead + faster kick pulse (`aiKickPulse`) are what make HARD stronger.
+- **Menu music = res/music/triangles.mod** (X-Type, ~225 KB of
+  chip samples). music.c loads it ONCE on the first menu entry (after the
+  intro freed its 5bpp buffers - loading at boot would starve the intro)
+  and keeps it resident; the menu only calls musicPlay()/musicStop().
+  Chip budget measured: ~424 KB largest free block at boot, minus 40 KB
+  backdrop + 225 KB music leaves room for the match (~90 KB). mod_tool
+  merges samples BY NAME across mods - unnamed samples collide ("sample 10
+  '' have different contents"), so the repo copy names them.
+- **Verifying audio on the shared desktop:** record only the emulator's
+  PipeWire stream (`parec --monitor-stream=<fs-uae sink input>`), never the
+  sink monitor - other apps (a browser) play into it. Silence shows as a
+  constant per-second RMS (pure DC). FS-UAE keyboard-joystick taps are
+  sometimes dropped under load: screenshot to confirm the state before
+  trusting a measurement.
+- **Demo mode:** `matchStartDemo()` saves `g_sMatchConfig`, sets all slots
+  to AI, random teams/size; `uiAnyInput()` or full time -> menu, config
+  restored in `gsMatchDestroy`. Started by idle timeouts in intro and menu.

@@ -1,7 +1,10 @@
 /* XAHBall - pitch geometry and background rendering
- * Classic HaxBall look: flat green pitch, 1px white border with rounded
- * corner arcs, halfway line + center circle, open goal mouths with posts
- * and a red goal frame. No stripes, no boxes, no net mesh.
+ * HaxBall geometry dressed as a football pitch: mowed grass stripes, 1px
+ * white border with rounded corner arcs, halfway line + center circle and
+ * spot, penalty and goal areas with spots and penalty arcs, goal nets as a
+ * mesh behind each mouth with posts and a red goal frame. Everything here
+ * is decoration drawn once per page - collisions only know the walls/posts
+ * in flatworld.c.
  */
 #include "pitch.h"
 
@@ -94,7 +97,88 @@ static void pitchCircle(tBitMap *pBfr, WORD wCx, WORD wCy, WORD wR) {
 	pitchArcQuarter(pBfr, wCx, wCy, wR, -1, -1);
 }
 
+// Full circle, keeping only the points on the field side of a vertical
+// line - the penalty "D" outside the box (wDir +1: keep x > wClipX)
+static void pitchCircleClipX(
+	tBitMap *pBfr, WORD wCx, WORD wCy, WORD wR, WORD wClipX, WORD wDir
+) {
+	WORD wX = wR, wY = 0;
+	WORD wErr = 1 - wR;
+	while(wX >= wY) {
+		WORD pDx[8] = {wX, -wX, wX, -wX, wY, -wY, wY, -wY};
+		WORD pDy[8] = {wY, wY, -wY, -wY, wX, wX, -wX, -wX};
+		for(UBYTE i = 0; i < 8; ++i) {
+			if((wCx + pDx[i] - wClipX) * wDir > 0) {
+				blitRect(pBfr, wCx + pDx[i], wCy + pDy[i], 1, 1, MCOLOR_WHITE);
+			}
+		}
+		++wY;
+		if(wErr < 0) {
+			wErr += 2 * wY + 1;
+		}
+		else {
+			--wX;
+			wErr += 2 * (wY - wX) + 1;
+		}
+	}
+}
+
+// 2x2 spot (center / penalty spots)
+static void pitchSpot(tBitMap *pBfr, WORD wX, WORD wY) {
+	blitRect(pBfr, wX - 1, wY - 1, 2, 2, MCOLOR_WHITE);
+}
+
+// Mowing pattern: vertical stripes alternating two greens
+static void pitchDrawStripes(tBitMap *pBfr) {
+	for(UWORD uwX = PITCH_X0; uwX <= PITCH_X1; uwX += PITCH_STRIPE_W) {
+		UWORD uwW = PITCH_STRIPE_W;
+		if(uwX + uwW > PITCH_X1 + 1) {
+			uwW = PITCH_X1 + 1 - uwX;
+		}
+		UBYTE ubDark = ((uwX - PITCH_X0) / PITCH_STRIPE_W) & 1;
+		blitRect(
+			pBfr, uwX, PITCH_Y0, uwW, PITCH_HEIGHT + 1,
+			ubDark ? MCOLOR_PITCH_DARK : MCOLOR_PITCH
+		);
+	}
+}
+
+// Penalty area, goal area, penalty spot and arc on one half
+static void pitchDrawBoxes(tBitMap *pBfr, UBYTE ubIsLeft) {
+	WORD wGoalLine = ubIsLeft ? PITCH_X0 : PITCH_X1;
+	WORD wDir = ubIsLeft ? 1 : -1; // toward the field
+	WORD pDepth[2] = {PENALTY_BOX_DEPTH, GOAL_BOX_DEPTH};
+	WORD pHeight[2] = {PENALTY_BOX_HEIGHT, GOAL_BOX_HEIGHT};
+	for(UBYTE i = 0; i < 2; ++i) {
+		WORD wY0 = PITCH_CY - pHeight[i] / 2;
+		WORD wFront = wGoalLine + wDir * pDepth[i];
+		WORD wX0 = ubIsLeft ? wGoalLine : wFront;
+		blitRect(pBfr, wX0, wY0, pDepth[i] + 1, 1, MCOLOR_WHITE);
+		blitRect(pBfr, wX0, wY0 + pHeight[i], pDepth[i] + 1, 1, MCOLOR_WHITE);
+		blitRect(pBfr, wFront, wY0, 1, pHeight[i] + 1, MCOLOR_WHITE);
+	}
+	WORD wSpotX = wGoalLine + wDir * PENALTY_SPOT_DIST;
+	pitchSpot(pBfr, wSpotX, PITCH_CY);
+	pitchCircleClipX(
+		pBfr, wSpotX, PITCH_CY, PENALTY_ARC_R,
+		wGoalLine + wDir * PENALTY_BOX_DEPTH, wDir
+	);
+}
+
+// Net mesh inside the goal (behind the mouth): every other pixel on every
+// other row, so the ball rolling in stays readable over it
+static void pitchDrawNet(tBitMap *pBfr, UBYTE ubIsLeft) {
+	UWORD uwX0 = ubIsLeft ? PITCH_X0 - GOAL_DEPTH + 1 : PITCH_X1 + 1;
+	for(UWORD uwY = GOAL_Y0 + 2; uwY < GOAL_Y1; uwY += 3) {
+		blitRect(pBfr, uwX0, uwY, GOAL_DEPTH - 1, 1, MCOLOR_GRAY_L);
+	}
+	for(UWORD uwX = uwX0 + 1; uwX < uwX0 + GOAL_DEPTH - 1; uwX += 3) {
+		blitRect(pBfr, uwX, GOAL_Y0 + 1, 1, GOAL_HEIGHT - 1, MCOLOR_GRAY_L);
+	}
+}
+
 static void pitchDrawGoal(tBitMap *pBfr, UBYTE ubIsLeft) {
+	pitchDrawNet(pBfr, ubIsLeft);
 	// Goal frame outside the wall: 1px red back line + top/bottom rails
 	UWORD uwBackX = ubIsLeft ? PITCH_X0 - GOAL_DEPTH : PITCH_X1 + GOAL_DEPTH - 1;
 	blitRect(pBfr, uwBackX, GOAL_Y0, 1, GOAL_HEIGHT + 1, MCOLOR_POST);
@@ -117,8 +201,8 @@ void pitchDrawBg(tBitMap *pBfr) {
 	// Stadium surround (whole screen; HUD/banner strips draw over the top)
 	blitRect(pBfr, 0, 0, GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, MCOLOR_STADIUM);
 
-	// Flat green pitch, corners cut back to the surround (rounded look)
-	blitRect(pBfr, PITCH_X0, PITCH_Y0, PITCH_WIDTH + 1, PITCH_HEIGHT + 1, MCOLOR_PITCH);
+	// Striped grass, corners cut back to the surround (rounded look)
+	pitchDrawStripes(pBfr);
 	pitchCutCorner(pBfr, -1, -1);
 	pitchCutCorner(pBfr, 1, -1);
 	pitchCutCorner(pBfr, -1, 1);
@@ -126,9 +210,12 @@ void pitchDrawBg(tBitMap *pBfr) {
 
 	pitchDrawBorder(pBfr);
 
-	// Halfway line + center circle
+	// Halfway line + center circle + spot, boxes on both halves
 	blitRect(pBfr, PITCH_CX, PITCH_Y0 + 1, 1, PITCH_HEIGHT - 2, MCOLOR_WHITE);
 	pitchCircle(pBfr, PITCH_CX, PITCH_CY, CENTER_CIRCLE_R);
+	pitchSpot(pBfr, PITCH_CX, PITCH_CY);
+	pitchDrawBoxes(pBfr, 1);
+	pitchDrawBoxes(pBfr, 0);
 
 	pitchDrawGoal(pBfr, 1);
 	pitchDrawGoal(pBfr, 0);

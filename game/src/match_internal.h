@@ -41,7 +41,6 @@
 #define BALL_MAX_SPEED F16(4.75f) // post-kick speed cap: bounds 50 Hz travel per frame
 #define KICK_COOLDOWN 8
 #define KICK_ANIM_FRAMES 8
-#define KICK_PULSE_FRAMES 2     // AI kick press length within a 16-frame cycle
 
 #define KICKOFF_FRAMES 150
 #define GOAL_FRAMES 140
