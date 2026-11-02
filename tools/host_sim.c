@@ -5,7 +5,7 @@
  * goal detection, kick semantics and full AI-vs-AI matches.
  *
  * Build & run from repo root:
- *   gcc -O2 -Wall -Wextra -I game/src -I <ACE>/include \
+ *   gcc -O2 -Wall -Wextra -DFIXMATH_NO_OVERFLOW -I game/src -I <ACE>/include \
  *       tools/host_sim.c game/src/flatworld.c game/src/vector.c \
  *       game/src/vecmath.c game/src/flatbody.c game/src/ai.c \
  *       <ACE>/src/fixmath/fix16.c <ACE>/src/fixmath/fix16_sqrt.c \
@@ -61,7 +61,15 @@ typedef struct {
 	UWORD uwKickCooldown;
 	UBYTE ubLevel; // AI_LEVEL_*
 	tInputState sIn;
+	tInputState sAiIn;   // last AI decision (half-rate mode keeps it 2 frames)
+	UBYTE ubAiWantKick;
 } tSimPlayer;
+
+// Default mirrors the game's matchPrepareAiInputs half-rate schedule: each
+// bot re-thinks every other frame (alternating by ordinal), all at once
+// after a gap in play. SIM_AI_FULL=1 = every bot every frame (the original
+// AI, for comparisons).
+static int s_iAiHalf;
 
 static tFlatWorld s_sWorld;
 static UWORD s_uwFrameTick;
@@ -85,13 +93,19 @@ static void simClampCheck(tFlatBody *pB) {
 }
 
 // Mirrors matchUpdatePlayer: input/accel/damp only - world integrates
-static void simUpdatePlayerHome(tSimPlayer *pP, const tFlatBody *pBall, fix16_t fwHomeX, fix16_t fwHomeY) {
-	UBYTE ubWantKick = 0;
-	aiUpdate(
-		&pP->sBody, pBall, fwHomeX, fwHomeY,
-		pP->ubSide, pP->ubRole, pP->ubSlot & 1, pP->ubLevel, &pP->sIn, &ubWantKick
-	);
-	pP->sIn.ubKick = ubWantKick && aiKickPulse(s_uwFrameTick, pP->ubSlot, pP->ubLevel);
+static void simUpdatePlayerHome(
+	tSimPlayer *pP, const tFlatBody *pBall, fix16_t fwHomeX, fix16_t fwHomeY,
+	UBYTE ubThink
+) {
+	if(ubThink) {
+		aiUpdate(
+			&pP->sBody, pBall, fwHomeX, fwHomeY,
+			pP->ubSide, pP->ubRole, pP->ubSlot & 1, pP->ubLevel,
+			&pP->sAiIn, &pP->ubAiWantKick
+		);
+	}
+	pP->sIn = pP->sAiIn;
+	pP->sIn.ubKick = pP->ubAiWantKick && aiKickPulse(s_uwFrameTick, pP->ubSlot, pP->ubLevel);
 
 	pP->ubKickPressed = 0;
 	if(pP->sIn.ubKick) {
@@ -225,11 +239,13 @@ static int simFullMatchLv(int iSeed, int iMaxFrames, int iCount, int iLevelL, in
 	fix16_t fwMaxSpd2 = 0;
 	int iKicks = 0;
 
+	int iPrevPlay = 0; // last frame ran the play step (half-rate AI gap check)
 	for(int f = 0; f < iMaxFrames; ++f) {
 		++s_uwFrameTick;
 
 		if(iPhase == 0) {
 			if(--uwPhaseTimer == 0) { iPhase = 1; }
+			iPrevPlay = 0;
 			continue;
 		}
 		// Role assignment per side (mirrors matchAssignAiRoles with hysteresis)
@@ -257,10 +273,13 @@ static int simFullMatchLv(int iSeed, int iMaxFrames, int iCount, int iLevelL, in
 				F2F(sP[1][0].sBody.sPos.X), F2F(sP[1][0].sBody.sPos.Y));
 		}
 		if(iPhase == 1) {
+			int iFull = !s_iAiHalf || !iPrevPlay;
 			for(int sd = 0; sd < 2; ++sd) {
 				for(int i = 0; i < iCount; ++i) {
+					int iOrdinal = sd * iCount + i;
+					UBYTE ubThink = iFull || !((s_uwFrameTick + iOrdinal) & 1);
 					simUpdatePlayerHome(&sP[sd][i], &sBall,
-						fwHomeXOf(sd, i, iCount), fwHomeYOf(sd, i, iCount));
+						fwHomeXOf(sd, i, iCount), fwHomeYOf(sd, i, iCount), ubThink);
 				}
 			}
 			simBallDamp(&sBall);
@@ -281,8 +300,10 @@ static int simFullMatchLv(int iSeed, int iMaxFrames, int iCount, int iLevelL, in
 				}
 			}
 			simClampCheck(&sBall);
+			iPrevPlay = 1;
 		}
 		else if(iPhase == 2) {
+			iPrevPlay = 0;
 			// celebration: players frozen, ball rolls into the net
 			sBall.sVel.X = fix16_mul(sBall.sVel.X, F16(0.95f));
 			sBall.sVel.Y = fix16_mul(sBall.sVel.Y, F16(0.95f));
@@ -340,6 +361,9 @@ static int simFullMatch(int iSeed, int iMaxFrames) {
 }
 
 int main(void) {
+	const char *szFull = getenv("SIM_AI_FULL");
+	s_iAiHalf = !(szFull && szFull[0] && szFull[0] != '0');
+	printf("AI rate: %s\n", s_iAiHalf ? "half (every other frame)" : "full");
 	printf("=== XAHBall host sim ===\n");
 
 	// 1) Containment fuzz: random ball states, must stay bounded & stable

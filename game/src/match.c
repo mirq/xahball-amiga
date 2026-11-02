@@ -37,6 +37,8 @@
 // Shared match state (declared in match_internal.h)
 
 tView *s_pView;
+// Clean pitch for bob undraw (ACE_BOB_PRISTINE_BUFFER)
+static tBitMap *s_pPristine;
 tVPort *s_pVPort;
 tSimpleBufferManager *s_pBfr;
 tTextBitMap *s_pTextBitMap;
@@ -165,7 +167,12 @@ void gsMatchCreate(void) {
 	matchResetPositions();
 
 	// BOB manager on both buffers, then register bobs
-	bobManagerCreate(s_pBfr->pFront, s_pBfr->pBack, GAME_SCREEN_HEIGHT);
+	// Pristine buffer: clean pitch the bobs undraw from (filled below with
+	// the same pitch drawing as both display pages)
+	s_pPristine = bitmapCreate(
+		GAME_SCREEN_WIDTH, GAME_SCREEN_HEIGHT, GAME_BPP, BMF_INTERLEAVED
+	);
+	bobManagerCreate(s_pBfr->pFront, s_pBfr->pBack, s_pPristine, GAME_SCREEN_HEIGHT);
 	matchRenderInitBobs();
 
 	// Match state
@@ -190,6 +197,7 @@ void gsMatchCreate(void) {
 	// Static layers on both pages: pitch below, HUD + banner strip on top
 	pitchDrawBg(s_pBfr->pBack);
 	pitchDrawBg(s_pBfr->pFront);
+	pitchDrawBg(s_pPristine);
 	matchDrawHudStatic(s_pBfr->pBack);
 	matchDrawHudStatic(s_pBfr->pFront);
 	matchRenderCaptureDbgBg();
@@ -203,6 +211,7 @@ void gsMatchLoop(void) {
 	// Sync bob double-buffer index after simplebuffer page swap
 	bobSetCurrentBuffer(s_pBfr->pBack);
 	++s_uwFrameTick;
+	matchFrameStatsBegin();
 
 	// Attract mode: any key or fire button hands control back to the menu
 	if(g_ubDemoMode && uiAnyInput()) {
@@ -270,7 +279,6 @@ void gsMatchLoop(void) {
 				);
 			}
 #endif
-			matchAssignAiRoles();
 			for(UBYTE ubI = 0; ubI < s_ubActiveCount; ++ubI) {
 				matchUpdatePlayer(&s_pPlayers[s_pActiveSlots[ubI]]);
 			}
@@ -347,10 +355,23 @@ void gsMatchLoop(void) {
 		bobPush(&s_pPlayers[s_pActiveSlots[ubI]].sBob);
 	}
 	bobPush(&s_sBallBob);
+	// Bob draws now run in the background (matchBobKick feeds them) while
+	// the CPU computes the next frame's AI. No other blits may start before
+	// bobEnd(): bob draws rely on blitter state set up in bobBegin().
+	bobPushingDone();
+	if(s_ubPhase == PHASE_PLAY) {
+		matchPrepareAiInputs();
+	}
 	bobEnd();
 	matchDrawBanner();
-	if(matchInputDebugActive()) {
+	// Work time ends here: the overlay below is a debug aid, not game cost
+	matchFrameStatsEnd();
+	// Overlay text costs ~3 frames to draw (one blit + wait per glyph), so
+	// it refreshes on 2 consecutive frames of every 8 - one per page - and
+	// those frames are left out of the drop count
+	if(matchInputDebugActive() && (s_uwFrameTick & 7) < 2) {
 		matchDrawInputDebug();
+		matchFrameStatsSkipNext();
 	}
 
 	viewProcessManagers(s_pView);
@@ -369,6 +390,8 @@ void gsMatchDestroy(void) {
 	// channel stays occupied at priority 1 and DMA-toggles 50x/s (audible on
 	// real hardware). ptplayer itself stays up - it is app-global.
 	bobManagerDestroy();
+	bitmapDestroy(s_pPristine);
+	s_pPristine = 0;
 	matchRenderDestroy();
 	if(g_ubDemoMode) {
 		g_sMatchConfig = s_sDemoSavedConfig;

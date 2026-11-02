@@ -95,6 +95,21 @@ static void flatCollideStaticDisc(
 // Rounded pitch bounds for one body, honoring its wall mode
 static void flatCollideBounds(tFlatBody *pBody) {
 	fix16_t fwR = pBody->fwRadius;
+
+	// Fast path: a body clear of every wall and outside all four corner
+	// squares hits no branch below (each test is the exact negation of one
+	// below), so skip the lot. Most bodies are mid-pitch on most frames, and
+	// this runs twice per body per step.
+	fix16_t fwInX = (fwR > F16(CORNER_R)) ? fwR : F16(CORNER_R);
+	if(
+		pBody->sPos.X >= fix16_add(F16(PITCH_X0), fwInX) &&
+		pBody->sPos.X <= fix16_sub(F16(PITCH_X1), fwInX) &&
+		pBody->sPos.Y >= fix16_add(F16(PITCH_Y0), fwR) &&
+		pBody->sPos.Y <= fix16_sub(F16(PITCH_Y1), fwR)
+	) {
+		return;
+	}
+
 	fix16_t fwRest = fix16_mul(pBody->fwWallBounce, WALL_BOUNCE);
 	if(pBody->ubWallMode == FLAT_WALL_NET) {
 		fwRest = fix16_mul(pBody->fwWallBounce, NET_BOUNCE);
@@ -204,8 +219,8 @@ static void flatCollideBodies(tFlatBody *pA, tFlatBody *pB) {
 	if(sD.X >= fwMin || sD.X <= -fwMin) { return; }
 	if(sD.Y >= fwMin || sD.Y <= -fwMin) { return; }
 	ULONG ulD2 = vecLengthSquared8(sD);
-	LONG lMin8 = fwMin >> 13;
-	if(ulD2 >= (ULONG)(lMin8 * lMin8)) { return; }
+	WORD wMin8 = (WORD)(fwMin >> 13);
+	if(ulD2 >= (ULONG)fixMulS16(wMin8, wMin8)) { return; }
 	fix16_t fwDist = vecLengthFromD2(ulD2);
 	if(fwDist == 0) { return; }
 

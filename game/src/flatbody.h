@@ -6,7 +6,7 @@
 #define _XAHBALL_FLATBODY_H_
 
 #include "ace/types.h"
-#include "fixmath/fixmath.h"
+#include "fastfix.h"
 #include "vector.h"
 
 //---------------------------------------------------------------------- DEFINES

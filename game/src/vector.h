@@ -4,7 +4,7 @@
 #ifndef _XAHBALL_VECTOR_H_
 #define _XAHBALL_VECTOR_H_
 
-#include <fixmath/fixmath.h>
+#include "fastfix.h"
 
 //------------------------------------------------------------------------ TYPES
 

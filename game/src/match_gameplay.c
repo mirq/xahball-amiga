@@ -62,7 +62,7 @@ void matchResetPositions(void) {
 
 // Per-side role assignment: nearest AI to the ball attacks, others defend.
 // Hysteresis: the current attacker keeps the role unless beaten by 24px.
-void matchAssignAiRoles(void) {
+static void matchAssignAiRoles(void) {
 	for(UBYTE ubSide = 0; ubSide < 2; ++ubSide) {
 		WORD wBestDist = 0x7FFF;
 		tMatchPlayer *pBest = 0;
@@ -94,12 +94,38 @@ void matchAssignAiRoles(void) {
 	}
 }
 
-void matchUpdatePlayer(tMatchPlayer *pP) {
-	UBYTE ubDevice = g_sMatchConfig.ubSlotDevice[pP->ubSlot];
-	UBYTE ubWantKick = 0;
-	if(ubDevice == DEVICE_AI) {
+// AI runs one frame ahead: everything aiUpdate reads (ball and bot bodies)
+// is final once this frame's physics step is done, so the next frame's
+// decisions are computed here - during the bob pass, which is blitter-bound
+// and would otherwise leave the CPU spinning in blitWait(). Game logic is
+// unchanged: the original code made the same decisions from the same state
+// at the start of the next frame. Only call when the phase is PLAY (roles
+// must not drift during kickoff/goal frames, which never consumed them).
+//
+// Half rate: each bot re-thinks every OTHER frame (bots alternate between
+// two halves by their AI ordinal, so the load splits evenly) and keeps its
+// last decision in between - 3v3's five bots cost ~80 raster lines a frame
+// at full rate, more than the frame had left. Roles still update every
+// frame. After any gap (kickoff, goal, pause) all bots re-think at once, so
+// nobody acts on a decision made before the gap.
+static UWORD s_uwAiLastTick;
+
+void matchPrepareAiInputs(void) {
+	matchAssignAiRoles();
+	matchBobKick();
+	// Decisions made now are consumed next frame (tick + 1)
+	UWORD uwUseTick = s_uwFrameTick + 1;
+	UBYTE ubFull = (s_uwFrameTick != (UWORD)(s_uwAiLastTick + 1));
+	s_uwAiLastTick = s_uwFrameTick;
+	UBYTE ubOrdinal = 0;
+	UBYTE ubCount = g_sMatchConfig.ubPlayersPerSide;
+	for(UBYTE ubI = 0; ubI < s_ubActiveCount; ++ubI) {
+		tMatchPlayer *pP = &s_pPlayers[s_pActiveSlots[ubI]];
+		if(g_sMatchConfig.ubSlotDevice[pP->ubSlot] != DEVICE_AI) { continue; }
+		UBYTE ubOffTurn = (uwUseTick + ubOrdinal) & 1;
+		++ubOrdinal;
+		if(ubOffTurn && !ubFull) { continue; }
 		UBYTE ubIdx = pP->ubSlot % SLOTS_PER_SIDE;
-		UBYTE ubCount = g_sMatchConfig.ubPlayersPerSide;
 		WORD wFx = s_pFormX[ubCount - 1][ubIdx];
 		WORD wFy = s_pFormY[ubCount - 1][ubIdx];
 		fix16_t fwHomeX = (pP->ubSide == 0)
@@ -109,10 +135,20 @@ void matchUpdatePlayer(tMatchPlayer *pP) {
 		aiUpdate(
 			&pP->sBody, &s_sBallBody,
 			fwHomeX, fwHomeY, pP->ubSide, pP->ubRole, pP->ubSlot & 1,
-			g_sMatchConfig.ubAiLevel, &pP->sIn, &ubWantKick
+			g_sMatchConfig.ubAiLevel, &pP->sAiIn, &pP->ubAiWantKick
 		);
-		// Emulated human press, phase-shifted per slot (see aiKickPulse)
-		pP->sIn.ubKick = ubWantKick
+		matchBobKick();
+	}
+}
+
+void matchUpdatePlayer(tMatchPlayer *pP) {
+	UBYTE ubDevice = g_sMatchConfig.ubSlotDevice[pP->ubSlot];
+	if(ubDevice == DEVICE_AI) {
+		// Decision precomputed by matchPrepareAiInputs() last frame.
+		// Emulated human press, phase-shifted per slot (see aiKickPulse) -
+		// applied with THIS frame's tick, so a pause in between is harmless.
+		pP->sIn = pP->sAiIn;
+		pP->sIn.ubKick = pP->ubAiWantKick
 			&& aiKickPulse(s_uwFrameTick, pP->ubSlot, g_sMatchConfig.ubAiLevel);
 	}
 	else {
@@ -294,8 +330,8 @@ void matchTryKicks(void) {
 		tVector sPlayerNext = addVectors(pP->sBody.sPos, pP->sBody.sVel);
 		tVector sDir = subVectors(sBallNext, sPlayerNext);
 		// Range-only test: squared compare, no sqrt (normalizes below).
-		LONG lRange8 = fwKickRange >> 13;
-		if(vecLengthSquared8(sDir) >= (ULONG)(lRange8 * lRange8)) { continue; }
+		WORD wRange8 = (WORD)(fwKickRange >> 13);
+		if(vecLengthSquared8(sDir) >= (ULONG)fixMulS16(wRange8, wRange8)) { continue; }
 
 		// Kick: additive impulse along body->ball normal (HaxBall semantics -
 		// a ball already moving away gains its speed on top, an incoming one

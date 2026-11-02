@@ -16,6 +16,9 @@ Top-down 2D football for the classic Amiga, built with
   - 2vs2: `1P VS CPU`, `2 JOY 2 KEYS` (port 2 + WSAD vs port 1 + arrows),
     `4 JOYSTICKS` (ports 2 + 4 vs ports 1 + 3)
   - 3vs3: `1P VS CPU`, `4 JOY 2 KEYS` (ports 2 + 4 + WSAD vs 1 + 3 + arrows)
+  - stock A500: 3vs3 with 5 AI players (`1P VS CPU`) is not recommended - it
+    drops frames in crowded play; 3vs3 with 6 human players runs at full
+    50 fps, as do 1vs1 and 2vs2 in any setup
 - **Custom controller setup** (fire on CONTROLS): any device per player slot
   - joysticks in ports 1-4 (3/4 via parallel adapter), arrows, WSAD or CPU;
   duplicates are flagged and fall back to CPU

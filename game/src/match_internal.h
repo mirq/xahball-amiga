@@ -9,7 +9,7 @@
 #include <ace/managers/bob.h>
 #include <ace/managers/viewport/simplebuffer.h>
 #include <ace/utils/font.h>
-#include <fixmath/fixmath.h>
+#include "fastfix.h"
 #include "flatbody.h"
 #include "flatworld.h"
 #include "game.h"
@@ -69,6 +69,10 @@ typedef struct _tMatchPlayer {
 	UWORD uwKickAnim;
 	tBob sBob;
 	tInputState sIn;
+	// AI decision for the NEXT play frame, computed by matchPrepareAiInputs()
+	// while the blitter draws this frame's bobs (kick pulse applied at use)
+	tInputState sAiIn;
+	UBYTE ubAiWantKick;
 } tMatchPlayer;
 
 //---------------------------------------------------------------------- GLOBALS
@@ -103,7 +107,9 @@ extern UBYTE s_ubActiveCount;
 void matchResetPositions(void);
 
 // Per-frame play-phase logic
-void matchAssignAiRoles(void);
+// Roles + AI inputs for the next play frame, from the post-step state of
+// this one. Called while the bob blits run (see gsMatchLoop).
+void matchPrepareAiInputs(void);
 void matchUpdatePlayer(tMatchPlayer *pP);
 void matchUpdateBallVelocity(void);
 void matchCaptureBallBaseline(void);
@@ -144,6 +150,16 @@ void matchRenderCaptureDbgBg(void);
 // F1 overlay toggle: redraw/restore handled internally
 void matchRenderToggleInputDebug(void);
 UBYTE matchInputDebugActive(void);
+
+// Frame-time stats for the F1 overlay: Begin at the top of the match loop,
+// End right before vPortWaitForEnd. Counts vblanks missed between loops.
+void matchFrameStatsBegin(void);
+void matchFrameStatsEnd(void);
+// Feeds the next pending bob blit if the blitter is idle (between
+// bobPushingDone() and bobEnd())
+void matchBobKick(void);
+// Next Begin ignores the vblanks since this frame (overlay redraw frames)
+void matchFrameStatsSkipNext(void);
 
 // Per-frame rendering
 void matchDrawHudStatic(tBitMap *pTarget); // once per page at create

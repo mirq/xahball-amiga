@@ -23,7 +23,7 @@
 #include <ace/utils/custom.h>
 #include <ace/utils/extview.h>
 #include <ace/utils/palette.h>
-#include <fixmath/fixmath.h>
+#include "fastfix.h"
 #include "game.h"
 #include "match.h"
 #include "sfx.h"

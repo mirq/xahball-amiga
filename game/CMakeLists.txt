@@ -27,6 +27,13 @@ set(DATA_DIR ${CMAKE_CURRENT_BINARY_DIR}/data)
 file(MAKE_DIRECTORY ${DATA_DIR}/sfx)
 
 # ACE
+# Bobs only ever draw on a simplebuffer and are clamped on-screen, so the
+# Y-wrap support (a divu modulo per bob per blit) is dead weight
+set(ACE_BOB_WRAP_Y OFF CACHE BOOL "" FORCE)
+# Bobs undraw from a clean copy of the pitch instead of saving what's under
+# them each frame: drops one of the three blits per bob (the bob pass is
+# blitter-bound on an A500). Costs one extra 40KB chip bitmap during a match.
+set(ACE_BOB_PRISTINE_BUFFER ON CACHE BOOL "" FORCE)
 add_subdirectory(deps/ace)
 include_directories(deps/ace/include)
 
@@ -36,6 +43,11 @@ set(TARGET_NAME ${PROJECT_NAME_LOWER})
 set(GAME_LINKED ${TARGET_NAME}.elf)
 set(GAME_EXE ${TARGET_NAME}.exe)
 add_executable(${GAME_LINKED} ${SOURCES} ${HEADERS})
+# libfixmath: inline fix16_add/sub (no overflow checks) in GAME code only.
+# The out-of-line overflow-checked versions cost a function call per add on
+# the 68000, and game values stay far from fix16 range. Not for ACE itself:
+# its fix16_trig.c needs the saturating helpers this define removes.
+target_compile_definitions(${GAME_LINKED} PRIVATE FIXMATH_NO_OVERFLOW)
 add_custom_command(TARGET ${GAME_LINKED} POST_BUILD
 	COMMAND ${ELF2HUNK} ${GAME_LINKED} ${GAME_EXE}
 )

@@ -8,6 +8,7 @@
 #include <ace/managers/blit.h>
 #include <ace/managers/key.h>
 #include <ace/managers/joy.h>
+#include <ace/managers/timer.h>
 #include <ace/utils/bitmap.h>
 #include <ace/utils/custom.h>
 #include <stdio.h>
@@ -48,15 +49,28 @@ static UBYTE s_ubInputDebug;
 // both pages when the overlay is toggled off (nothing else repaints there)
 static tBitMap *s_pInputDbgBg;
 
+// Frame-time stats (shown on the overlay's top row). uwDrops counts vblanks
+// that passed with no loop iteration - each one is a frame the game ran
+// late. Line counts are raster lines (313 per PAL frame) from loop start to
+// just before vPortWaitForEnd; peak >= ~290 means that frame dropped.
+static UWORD s_uwStatLastVbl;
+static UBYTE s_ubStatPrimed;
+static UWORD s_uwStatFrames;
+static UWORD s_uwStatDrops;
+static UWORD s_uwStatLines;
+static UWORD s_uwStatPeak;
+static ULONG s_ulStatSum;
+static UWORD s_uwStatSamples;
+
 //-------------------------------------------------------------------- FUNCTIONS
 
 // Overlay strip geometry - shared by draw, capture and restore paths
 static UWORD matchInputDebugStripY(void) {
-	return GAME_SCREEN_HEIGHT - 2 * g_pGameFont->uwHeight - 5;
+	return GAME_SCREEN_HEIGHT - 3 * g_pGameFont->uwHeight - 6;
 }
 
 static UWORD matchInputDebugStripH(void) {
-	return 2 * g_pGameFont->uwHeight + 5;
+	return 3 * g_pGameFont->uwHeight + 6;
 }
 
 // Writes a palette slot to the viewport AND the hardware color register:
@@ -178,6 +192,15 @@ void matchRenderCaptureDbgBg(void) {
 // while the overlay is disabled.
 void matchRenderToggleInputDebug(void) {
 	s_ubInputDebug = !s_ubInputDebug;
+	if(s_ubInputDebug) {
+		// Fresh stats per overlay session
+		s_ubStatPrimed = 0;
+		s_uwStatFrames = 0;
+		s_uwStatDrops = 0;
+		s_uwStatPeak = 0;
+		s_ulStatSum = 0;
+		s_uwStatSamples = 0;
+	}
 	if(!s_ubInputDebug && s_pInputDbgBg) {
 		blitCopyAligned(
 			s_pInputDbgBg, 0, 0, s_pBfr->pBack, 0, matchInputDebugStripY(),
@@ -192,6 +215,76 @@ void matchRenderToggleInputDebug(void) {
 
 UBYTE matchInputDebugActive(void) {
 	return s_ubInputDebug;
+}
+
+// Beam position as one monotonic "raster line" count: vblank counter * 313
+// + current line. Raw reads only - the multiply happens at draw time, so a
+// mark costs a few register reads (timerGetPrec used __mulsi3 + __udivsi3,
+// ~2 lines per call, and skewed the very numbers it measured).
+typedef struct tStatStamp {
+	UWORD uwVbl;
+	UWORD uwLine;
+} tStatStamp;
+
+static inline tStatStamp statStamp(void) {
+	tStatStamp sStamp;
+	UWORD uwV1, uwH;
+	do {
+		uwV1 = g_pCustom->vposr;
+		uwH = g_pCustom->vhposr;
+		sStamp.uwVbl = (UWORD)g_sTimerManager.uwFrameCounter;
+	} while(uwV1 != g_pCustom->vposr);
+	sStamp.uwLine = ((uwV1 & 1) << 8) | (uwH >> 8);
+	return sStamp;
+}
+
+static UWORD statLinesBetween(tStatStamp sFrom, tStatStamp sTo) {
+	UWORD uwFrames = sTo.uwVbl - sFrom.uwVbl;
+	if(uwFrames > 8) {
+		return 0xFFFF;
+	}
+	return (UWORD)(uwFrames * 313 + sTo.uwLine - sFrom.uwLine);
+}
+
+static tStatStamp s_sStatStart;
+static UBYTE s_ubStatSkip;
+
+void matchFrameStatsBegin(void) {
+	UWORD uwVbl = (UWORD)g_sTimerManager.uwFrameCounter;
+	if(s_ubStatPrimed && !s_ubStatSkip) {
+		UWORD uwDelta = uwVbl - s_uwStatLastVbl;
+		if(uwDelta > 1) {
+			s_uwStatDrops += uwDelta - 1;
+		}
+		++s_uwStatFrames;
+	}
+	s_ubStatPrimed = 1;
+	s_ubStatSkip = 0;
+	s_uwStatLastVbl = uwVbl;
+	s_sStatStart = statStamp();
+}
+
+void matchBobKick(void) {
+	if(blitIsIdle()) {
+		bobProcessNext();
+	}
+}
+
+void matchFrameStatsSkipNext(void) {
+	s_ubStatSkip = 1;
+}
+
+void matchFrameStatsEnd(void) {
+	UWORD uwLines = statLinesBetween(s_sStatStart, statStamp());
+	if(uwLines == 0xFFFF) {
+		return; // stale sample (state entry)
+	}
+	s_uwStatLines = uwLines;
+	s_ulStatSum += uwLines;
+	++s_uwStatSamples;
+	if(s_uwStatLines > s_uwStatPeak) {
+		s_uwStatPeak = s_uwStatLines;
+	}
 }
 
 // Bob positions never leave the screen - the BOB blitter does not clip and
@@ -377,6 +470,19 @@ void matchDrawInputDebug(void) {
 		s_pBfr->pBack, 0, matchInputDebugStripY(), GAME_SCREEN_WIDTH,
 		matchInputDebugStripH(), MCOLOR_BLACK
 	);
+
+	// Row 0: average / last / peak work lines per frame (of 313) and
+	// dropped vblanks out of measured frames
+	sprintf(
+		szSlots, "AVG:%lu LAST:%u PEAK:%u DROP:%u/%u",
+		s_uwStatSamples ? s_ulStatSum / s_uwStatSamples : 0UL,
+		s_uwStatLines, s_uwStatPeak, s_uwStatDrops, s_uwStatFrames
+	);
+	fontDrawStr(
+		g_pGameFont, s_pBfr->pBack, 1, uwY, szSlots,
+		s_uwStatDrops ? MCOLOR_AMBER : MCOLOR_WHITE, FONT_COOKIE, s_pTextBitMap
+	);
+	uwY += g_pGameFont->uwHeight + 1;
 
 	*p++ = '2'; *p++ = ':';
 	*p++ = keyCheck(KEY_W) ? 'W' : '.';       *p++ = keyCheck(KEY_A) ? 'A' : '.';

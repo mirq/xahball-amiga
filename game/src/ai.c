@@ -131,8 +131,9 @@ void aiUpdate(
 		fix16_t fwGy = fix16_sub(fwPredY, fwGoalY);
 		fix16_t fwGMag = fix16_add(aiAbs(fwGx), aiAbs(fwGy));
 		if(fwGMag < F16(1)) { fwGMag = F16(1); }
-		fwTargetX = fix16_add(fwPredX, fix16_mul(fwGx, fix16_div(F16(14), fwGMag)));
-		fwTargetY = fix16_add(fwPredY, fix16_mul(fwGy, fix16_div(F16(14), fwGMag)));
+		fix16_t fwBehind = fix16_div(F16(14), fwGMag); // one division, both axes
+		fwTargetX = fix16_add(fwPredX, fix16_mul(fwGx, fwBehind));
+		fwTargetY = fix16_add(fwPredY, fix16_mul(fwGy, fwBehind));
 
 		// Near the attacked goal: shift the approach line so kicks aim at a
 		// post (ubAim picks the side) instead of straight at the keeper

@@ -28,9 +28,11 @@ static UWORD uwVecIntSqrt(ULONG ulVal) {
 }
 
 ULONG vecLengthSquared8(tVector sVec) {
-	LONG lX8 = sVec.X >> 13; // delta in 1/8 px units
-	LONG lY8 = sVec.Y >> 13;
-	return (ULONG)(lX8 * lX8 + lY8 * lY8);
+	// Delta in 1/8 px units. On-screen deltas (< 4096 px) fit a WORD, so the
+	// squares use the 16x16 hardware multiply instead of __mulsi3.
+	WORD wX8 = (WORD)(sVec.X >> 13);
+	WORD wY8 = (WORD)(sVec.Y >> 13);
+	return (ULONG)fixMulS16(wX8, wX8) + (ULONG)fixMulS16(wY8, wY8);
 }
 
 fix16_t vecLengthFromD2(ULONG ulD2) {
