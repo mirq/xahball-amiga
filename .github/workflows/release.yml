@@ -8,7 +8,7 @@
 #  - workflow_dispatch (manual)    -> build + artifact
 #  - FTP upload happens only when FTP_HOST/FTP_USER/FTP_PASS secrets are set.
 #
-# Pinned dependency: ACE @ 1d09ead6dec16eb343a1677eadd25862a20171e8
+# Pinned dependency: ACE @ 5feb79272a71182ff55385a57ab5506ae3cfbf3b
 # (matches the local dev clone; the repo ships deps/ace as a dev-only symlink
 # to an absolute path, which the CI step below replaces with this checkout).
 
@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
 
 env:
-  ACE_PIN: 1d09ead6dec16eb343a1677eadd25862a20171e8
+  ACE_PIN: 5feb79272a71182ff55385a57ab5506ae3cfbf3b
   EXT_PATH: /home/amiga/.vscode/extensions/bartmanabyss.amiga-debug-1.7.9
   FTP_HOST: ${{ secrets.FTP_HOST }}
   FTP_USER: ${{ secrets.FTP_USER }}
