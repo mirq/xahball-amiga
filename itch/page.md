@@ -104,4 +104,4 @@ Credits:
 - Silkscreen font from the ACE showcase assets
 - Intro technique and "Powered by ACE" logo after AMIner by
   Last-Minute-Creations
-- Thanks to Tehkain and all ACE developers, and to everyone who tested
+- Thanks to teh_KaiN and all ACE developers, and to everyone who tested

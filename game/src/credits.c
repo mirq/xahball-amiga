@@ -24,7 +24,7 @@ static const char *s_pLines[] = {
 	"MUSIC: TRIANGLES BY X-TYPE",
 	"",
 	"THANKS TO:",
-	"TEHKAIN",
+	"teh_KaiN",
 	"AND ALL ACE DEVELOPERS",
 	"",
 	"TESTING AND SUPPORT:",
