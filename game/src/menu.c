@@ -429,7 +429,8 @@ void gsMenuDestroy(void) {
 	if(s_ePage == MENU_PAGE_MAIN) {
 		s_ubMainRow = s_ubRow;
 	}
-	musicStop();
+	// No musicStop(): the tune keeps playing through setup/team select/
+	// credits - gsMatchCreate stops it
 	fontDestroyTextBitMap(s_pTextBitMap);
 	viewDestroy(s_pView);
 	s_pView = 0;

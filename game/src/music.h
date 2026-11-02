@@ -6,7 +6,8 @@
 #ifndef _XAHBALL_MUSIC_H_
 #define _XAHBALL_MUSIC_H_
 
-// Starts the menu tune from the top (loads it first if needed). Must be
+// Starts the menu tune from the top (loads it first if needed); no-op while
+// it is already playing, so menu sub-screens don't restart it. Must be
 // called while the OS is alive (state create) - the first call does disk I/O.
 void musicPlay(void);
 

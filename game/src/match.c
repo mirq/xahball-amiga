@@ -28,6 +28,7 @@
 #include "ai.h"
 #include "input_slots.h"
 #include "match_internal.h"
+#include "music.h"
 #include "pitch.h"
 #include "sfx.h"
 #include "teams.h"
@@ -105,6 +106,8 @@ static void matchBuildActiveSlots(void) {
 
 void gsMatchCreate(void) {
 	logBlockBegin("gsMatchCreate");
+	// Menu music runs through all menu screens; the pitch is silent
+	musicStop();
 
 	s_pView = viewCreate(0,
 		TAG_VIEW_GLOBAL_PALETTE, 1,

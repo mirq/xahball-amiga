@@ -8,6 +8,8 @@
 #   tools/emu.sh start            Xephyr :5 + FS-UAE (boots straight into the game)
 #   tools/emu.sh keys "<seq>"     xkey.py sequence, e.g. "return sleep:1 down return"
 #   tools/emu.sh shot <out.png>   screenshot of the emulator window
+#   tools/emu.sh grab <out.png>   pixel-exact 320x256 game screen (FS-UAE's
+#                                 own F12+S screenshot, cropped + halved)
 #   tools/emu.sh stop             kill FS-UAE + Xephyr
 #
 # Host arrows + right ctrl are the Amiga joystick in port 2 (ACE JOY1) - see
@@ -49,6 +51,39 @@ case "$1" in
 		DISPLAY=$DPY import -window root "${2:-$RUN_DIR/shot.png}"
 		echo "${2:-$RUN_DIR/shot.png}"
 		;;
+	grab)
+		# FS-UAE saves the full PAL frame at 2x (754x576); the 320x256
+		# display window sits at (74,36). Crop and halve with nearest
+		# neighbour -> exactly the Amiga's pixels, no scaler blur.
+		SHOTS=$HOME/FS-UAE/Screenshots
+		BEFORE=$(ls -t "$SHOTS" 2>/dev/null | head -1)
+		DISPLAY=$DPY python3 - <<'PY'
+import time
+from Xlib import X, XK, display
+from Xlib.ext import xtest
+d = display.Display()
+f12 = d.keysym_to_keycode(XK.string_to_keysym("F12"))
+s = d.keysym_to_keycode(XK.string_to_keysym("s"))
+for code, ev, wait in ((f12, X.KeyPress, 0.15), (s, X.KeyPress, 0.1),
+		(s, X.KeyRelease, 0.1), (f12, X.KeyRelease, 0)):
+	xtest.fake_input(d, ev, code)
+	d.sync()
+	time.sleep(wait)
+PY
+		for _ in 1 2 3 4 5 6 7 8 9 10; do
+			LATEST=$(ls -t "$SHOTS" | head -1)
+			[ "$LATEST" != "$BEFORE" ] && break
+			sleep 0.5
+		done
+		python3 -c "
+import sys
+from PIL import Image
+im = Image.open(sys.argv[1]).convert('RGB').crop((74, 36, 714, 548))
+im.resize((320, 256), Image.NEAREST).save(sys.argv[2])
+" "$SHOTS/$LATEST" "${2:-$RUN_DIR/grab.png}"
+		rm -f "$SHOTS/$LATEST"
+		echo "${2:-$RUN_DIR/grab.png}"
+		;;
 	stop)
 		for f in fsuae xephyr; do
 			[ -f "$RUN_DIR/$f.pid" ] && kill "$(cat "$RUN_DIR/$f.pid")" 2>/dev/null || true
@@ -56,7 +91,7 @@ case "$1" in
 		done
 		;;
 	*)
-		sed -n 2,13p "$0"
+		sed -n 2,15p "$0"
 		exit 1
 		;;
 esac

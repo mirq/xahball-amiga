@@ -21,6 +21,8 @@ static tSimpleBufferManager *s_pBfr;
 static tTextBitMap *s_pTextBitMap;
 
 static const char *s_pLines[] = {
+	"MUSIC: TRIANGLES BY X-TYPE",
+	"",
 	"THANKS TO:",
 	"TEHKAIN",
 	"AND ALL ACE DEVELOPERS",
@@ -34,7 +36,7 @@ static const char *s_pLines[] = {
 	"KINIA  RJ  JACK_SWIDNIK",
 	"MARX  WOZIK",
 };
-#define CREDIT_LINE_COUNT 12
+#define CREDIT_LINE_COUNT 14
 
 // Static screen: backdrop + panel drawn once per page at create
 static void creditsDrawPage(tBitMap *pTarget) {
@@ -54,13 +56,13 @@ static void creditsDrawPage(tBitMap *pTarget) {
 			continue;
 		}
 		UBYTE ubColor = COLOR_WHITE;
-		if(i == 0 || i == 4) { ubColor = COLOR_ACCENT; }
-		else if(i == 1 || i == 2) { ubColor = COLOR_AMBER; }
+		if(i == 2 || i == 6) { ubColor = COLOR_ACCENT; }
+		else if(i == 0 || i == 3 || i == 4) { ubColor = COLOR_AMBER; }
 		fontDrawStr(
 			g_pGameFont, pTarget, uwCenterX, uwY, szLine, ubColor,
 			FONT_COOKIE | FONT_HCENTER, s_pTextBitMap
 		);
-		uwY += 10;
+		uwY += 9;
 	}
 	fontDrawStr(
 		g_pGameFont, pTarget, uwCenterX, UI_CONTENT_Y + 146, "PRESS FIRE TO CONTINUE",

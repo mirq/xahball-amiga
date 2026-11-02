@@ -506,6 +506,46 @@ int main(void) {
 		printf("  off-mouth OK, ball at x=%.1f\n", F2F(b.sPos.X));
 	}
 
+	// 4b) Goals scored near a post: after the goal the ball must stay in the
+	// net (net mode boxes it behind the goal line). Before the net box fix
+	// ~1/3 of these rolled back onto the pitch under the GOAL! banner.
+	{
+		printf("[4b] ball stays in the net after near-post goals\n");
+		int iGoals = 0, iEscapes = 0;
+		for(int iY = 60; iY <= 230; iY += 2) {
+			for(int iAim = 0; iAim < 3; ++iAim) {
+				for(int iSpd = 1; iSpd <= 5; ++iSpd) {
+					tFlatBody b;
+					flatWorldInit(&s_sWorld);
+					flatBodyInit(&b, 60, iY, BALL_R, BALL_MASS, F16(1.0f), F16(1.0f), 0);
+					b.ubWallMode = FLAT_WALL_PLAY;
+					flatWorldAdd(&s_sWorld, &b);
+					double dTy = (iAim == 0) ? GOAL_Y1 - 2 : (iAim == 1) ? GOAL_Y1 + 3 : GOAL_Y0 + 2;
+					double dDx = PITCH_X0 - 60, dDy = dTy - iY, dL = sqrt(dDx * dDx + dDy * dDy);
+					b.sVel.X = (fix16_t)(dDx / dL * iSpd * 65536);
+					b.sVel.Y = (fix16_t)(dDy / dL * iSpd * 65536);
+					for(int f = 0; f < 120; ++f) {
+						flatWorldStep(&s_sWorld);
+						if(pitchIsInGoalMouth((UWORD)fix16_to_int(b.sPos.Y)) && b.sPos.X < F16(PITCH_X0)) {
+							++iGoals;
+							b.ubWallMode = FLAT_WALL_NET;
+							for(int k = 0; k < GOAL_FRAMES; ++k) {
+								b.sVel.X = fix16_mul(b.sVel.X, F16(0.95f));
+								b.sVel.Y = fix16_mul(b.sVel.Y, F16(0.95f));
+								flatWorldStep(&s_sWorld);
+							}
+							iEscapes += b.sPos.X > F16(PITCH_X0);
+							break;
+						}
+					}
+				}
+			}
+		}
+		printf("  %d goals, %d balls back on the pitch\n", iGoals, iEscapes);
+		CHECK(iGoals > 0, "no near-post goals in sweep");
+		CHECK(iEscapes == 0, "ball left the net during goal celebration");
+	}
+
 	// 5) Full AI vs AI matches - goals must actually happen
 	{
 		printf("[5] AI vs AI matches (1v1)\n");

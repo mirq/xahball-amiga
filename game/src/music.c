@@ -10,6 +10,7 @@
 static tPtplayerMod *s_pMod;
 static tPtplayerSamplePack *s_pSamples;
 static UBYTE s_isLoadFailed;
+static UBYTE s_isPlaying;
 
 static void musicFreeSamples(void) {
 	if(s_pSamples) {
@@ -25,6 +26,9 @@ static void musicFreeSamples(void) {
 }
 
 void musicPlay(void) {
+	if(s_isPlaying) {
+		return; // keep the tune going across menu screens
+	}
 	if(!s_pMod && !s_isLoadFailed) {
 		s_pMod = ptplayerModCreateFromPath("data/menu.mod");
 		s_pSamples = ptplayerSampleDataCreateFromPath("data/menu.samplepack");
@@ -42,13 +46,15 @@ void musicPlay(void) {
 	if(s_pMod) {
 		ptplayerLoadMod(s_pMod, s_pSamples, 0);
 		ptplayerEnableMusic(1);
+		s_isPlaying = 1;
 	}
 }
 
 void musicStop(void) {
-	if(s_pMod) {
+	if(s_pMod && s_isPlaying) {
 		ptplayerStop();
 	}
+	s_isPlaying = 0;
 }
 
 void musicDestroy(void) {

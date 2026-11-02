@@ -40,6 +40,8 @@
 #define INTRO_PROMPT_X 64
 #define INTRO_PROMPT_W 192
 #define INTRO_PROMPT_H 8
+// Music credit line, under the prompt band
+#define INTRO_CREDIT_Y 248
 
 // 5 bitplanes = 32 colors: the title artwork needs them; the ACE splash
 // just uses the lower entries of the same palette
@@ -224,6 +226,15 @@ static void introEnterTitlePhase(void) {
 			uwBest = uwSum;
 			s_ubPromptWhite = i;
 		}
+	}
+	// Static music credit in the bottom-right grass, below the prompt band
+	// (the blink restore never touches it, so draw once on both pages)
+	for(UBYTE ubPage = 0; ubPage < 2; ++ubPage) {
+		fontDrawStr(
+			g_pGameFont, s_pPages[ubPage], GAME_SCREEN_WIDTH - 4, INTRO_CREDIT_Y,
+			"MUSIC BY X-TYPE", s_ubPromptWhite,
+			FONT_COOKIE | FONT_RIGHT | FONT_SHADOW, s_pTextBitMap
+		);
 	}
 	s_eExit = INTRO_EXIT_NONE;
 	s_ubPromptDirty = 2;

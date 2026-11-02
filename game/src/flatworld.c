@@ -92,8 +92,38 @@ static void flatCollideStaticDisc(
 	);
 }
 
+// Goal celebration: the ball is boxed inside the goal it entered - back
+// net, side nets AND the goal line itself. Clamping only while the center
+// was behind the line let a ball that bounced off the back net roll out
+// through the open mouth: about a third of goals scored near a post ended
+// with the ball back on the pitch under the GOAL! banner.
+static void flatCollideNetBox(tFlatBody *pBody) {
+	fix16_t fwR = pBody->fwRadius;
+	fix16_t fwRest = fix16_mul(pBody->fwWallBounce, NET_BOUNCE);
+	if(pBody->sPos.X < fix16_from_int(PITCH_CX)) {
+		flatCollideAxisMin(&pBody->sPos.X, &pBody->sVel.X,
+			fix16_add(fix16_from_int(PITCH_X0 - GOAL_DEPTH), fwR), fwRest);
+		flatCollideAxisMax(&pBody->sPos.X, &pBody->sVel.X,
+			fix16_from_int(PITCH_X0), fwRest);
+	}
+	else {
+		flatCollideAxisMax(&pBody->sPos.X, &pBody->sVel.X,
+			fix16_sub(fix16_from_int(PITCH_X1 + GOAL_DEPTH), fwR), fwRest);
+		flatCollideAxisMin(&pBody->sPos.X, &pBody->sVel.X,
+			fix16_from_int(PITCH_X1), fwRest);
+	}
+	flatCollideAxisMin(&pBody->sPos.Y, &pBody->sVel.Y,
+		fix16_add(fix16_from_int(GOAL_Y0), fwR), fwRest);
+	flatCollideAxisMax(&pBody->sPos.Y, &pBody->sVel.Y,
+		fix16_sub(fix16_from_int(GOAL_Y1), fwR), fwRest);
+}
+
 // Rounded pitch bounds for one body, honoring its wall mode
 static void flatCollideBounds(tFlatBody *pBody) {
+	if(pBody->ubWallMode == FLAT_WALL_NET) {
+		flatCollideNetBox(pBody);
+		return;
+	}
 	fix16_t fwR = pBody->fwRadius;
 
 	// Fast path: a body clear of every wall and outside all four corner
@@ -111,9 +141,6 @@ static void flatCollideBounds(tFlatBody *pBody) {
 	}
 
 	fix16_t fwRest = fix16_mul(pBody->fwWallBounce, WALL_BOUNCE);
-	if(pBody->ubWallMode == FLAT_WALL_NET) {
-		fwRest = fix16_mul(pBody->fwWallBounce, NET_BOUNCE);
-	}
 
 	// Rounded corners first - the arc supersedes the straight walls of its
 	// corner square
