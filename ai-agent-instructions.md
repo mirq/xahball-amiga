@@ -406,9 +406,10 @@ Environment gotchas:
   preinstalled, extension at
   `/home/amiga/.vscode/extensions/bartmanabyss.amiga-debug-1.7.9`). The repo's
   `deps/ace` is a dev-only symlink to an absolute path - CI replaces it with a
-  pinned AmigaPorts/ACE checkout and applies `tools/patches/ace-local.patch`
-  (audio_conv SIGFPE on `-fpt`: divide by zero in padContents - pristine ACE
-  crashes on every .sfx conversion). CMake toolchain/build paths must be
+  pinned AmigaPorts/ACE checkout (`ACE_PIN` in release.yml; keep it equal
+  to the local dev clone). The old `tools/patches/ace-local.patch` (audio_conv
+  SIGFPE on `-fpt`, joy pStates overflow) is gone - both fixes are upstream
+  since ACE #295 / #298. CMake toolchain/build paths must be
   ABSOLUTE inside docker (relative toolchain paths resolve against the build
   dir). `out/` must be chmod 777 before docker steps (image runs non-root).
   The amiga-debug VSIX strips exec bits - chmod -R u+x after unzip. Repo:
@@ -449,7 +450,7 @@ Environment gotchas:
 
 ## 17. 0.4 findings (menus, presets, AI levels, demo mode)
 
-- **ACE joy manager overflow (fixed in tools/patches/ace-local.patch):**
+- **ACE joy manager overflow (fixed upstream, ACE #298):**
   `tJoyManager.pStates[20]`, but with `joyEnableParallel()` `joyProcess()`
   writes 24 codes (JOY4_FIRE2 = 23) - 4 bytes past the struct EVERY frame,
   into whatever global the linker put next. Found when a static bitmap

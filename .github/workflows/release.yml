@@ -48,8 +48,8 @@ jobs:
           git -C game/deps/ace remote add origin https://github.com/AmigaPorts/ACE
           git -C game/deps/ace fetch --depth 1 origin "$ACE_PIN"
           git -C game/deps/ace checkout FETCH_HEAD
-          # local fixes: audio_conv SIGFPE on -fpt (divide by zero) + pad logic
-          git -C game/deps/ace apply "$GITHUB_WORKSPACE/tools/patches/ace-local.patch"
+          # (the former tools/patches/ace-local.patch - audio_conv SIGFPE,
+          # joy pStates[24] - is upstream since AmigaPorts/ACE #295 / #298)
 
       - name: Prepare workspace permissions (docker writes as root)
         run: chmod -R 777 .
