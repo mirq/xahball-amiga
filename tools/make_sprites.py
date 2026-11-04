@@ -139,6 +139,10 @@ def main():
     # Player discs carry their slot number (1..3 per side) so players are
     # distinguishable; all three variants (normal/flash/ready) are numbered
     for side, fill in (("A", KIT_A), ("B", KIT_B)):
+        # Plain (un-numbered) discs for 1v1, where numbers carry no info
+        make_disc(os.path.join(OUT, f"team{side}.png"), fill, BLACK)
+        make_disc(os.path.join(OUT, f"team{side}-flash.png"), fill, AMBER)
+        make_disc(os.path.join(OUT, f"team{side}-ready.png"), fill, WHITE)
         for num in (1, 2, 3):
             make_disc(os.path.join(OUT, f"team{side}{num}.png"), fill, BLACK, digit=num)
             make_disc(os.path.join(OUT, f"team{side}{num}-flash.png"), fill, AMBER, digit=num)

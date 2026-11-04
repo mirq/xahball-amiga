@@ -63,13 +63,21 @@ target_link_libraries(${GAME_LINKED} ace)
 convertPalette(${GAME_LINKED} ${RES_DIR}/game.gpl ${DATA_DIR}/game.plt)
 
 # Sprites: interleaved .bm + .msk masks (mask color stripped by -mc)
-# Player discs are numbered per slot (teamA1..3 / teamB1..3)
+# Player discs are numbered per slot (teamA1..3 / teamB1..3); plain
+# teamA / teamB discs are used in 1v1
 convertBitmaps(
 	TARGET ${GAME_LINKED}
 	PALETTE ${RES_DIR}/game.gpl
 	MASK_COLOR "#ff00ff"
 	INTERLEAVED
 	SOURCES
+		${RES_DIR}/sprites/ball.png
+		${RES_DIR}/sprites/teamA.png
+		${RES_DIR}/sprites/teamB.png
+		${RES_DIR}/sprites/teamA-flash.png
+		${RES_DIR}/sprites/teamB-flash.png
+		${RES_DIR}/sprites/teamA-ready.png
+		${RES_DIR}/sprites/teamB-ready.png
 		${RES_DIR}/sprites/teamA1.png
 		${RES_DIR}/sprites/teamA2.png
 		${RES_DIR}/sprites/teamA3.png
@@ -89,6 +97,13 @@ convertBitmaps(
 		${RES_DIR}/sprites/teamB2-ready.png
 		${RES_DIR}/sprites/teamB3-ready.png
 	DESTINATIONS
+		${DATA_DIR}/ball.bm
+		${DATA_DIR}/teamA.bm
+		${DATA_DIR}/teamB.bm
+		${DATA_DIR}/teamA-flash.bm
+		${DATA_DIR}/teamB-flash.bm
+		${DATA_DIR}/teamA-ready.bm
+		${DATA_DIR}/teamB-ready.bm
 		${DATA_DIR}/teamA1.bm
 		${DATA_DIR}/teamA2.bm
 		${DATA_DIR}/teamA3.bm
@@ -108,6 +123,13 @@ convertBitmaps(
 		${DATA_DIR}/teamB2-ready.bm
 		${DATA_DIR}/teamB3-ready.bm
 	MASKS
+		${DATA_DIR}/ball.msk
+		${DATA_DIR}/teamA.msk
+		${DATA_DIR}/teamB.msk
+		${DATA_DIR}/teamA-flash.msk
+		${DATA_DIR}/teamB-flash.msk
+		${DATA_DIR}/teamA-ready.msk
+		${DATA_DIR}/teamB-ready.msk
 		${DATA_DIR}/teamA1.msk
 		${DATA_DIR}/teamA2.msk
 		${DATA_DIR}/teamA3.msk

@@ -19,7 +19,8 @@
 // (render-private state)
 
 // Numbered kit sprites, [side][slot 0..2] - the slot number is baked into
-// the sprite so players are distinguishable on the pitch
+// the sprite so players are distinguishable on the pitch (1v1 loads the
+// plain un-numbered disc into every slot instead)
 static tDiscSprite *s_pSpriteKit[2][SLOTS_PER_SIDE];
 static tDiscSprite *s_pSpriteKitFlash[2][SLOTS_PER_SIDE];
 static tDiscSprite *s_pSpriteKitReady[2][SLOTS_PER_SIDE];
@@ -115,11 +116,16 @@ void matchRenderLoadSprites(void) {
 	char szBm[32], szMsk[32];
 	for(UBYTE ubSide = 0; ubSide < 2; ++ubSide) {
 		for(UBYTE ubNum = 0; ubNum < SLOTS_PER_SIDE; ++ubNum) {
+			// 1v1: a lone player needs no number - use the plain disc
+			char szNum[2] = {0, 0};
+			if(g_sMatchConfig.ubPlayersPerSide > 1) {
+				szNum[0] = '1' + ubNum;
+			}
 			for(UBYTE ubVar = 0; ubVar < 3; ++ubVar) {
-				sprintf(szBm, "data/team%s%d%s.bm",
-					s_pSideCodes[ubSide], ubNum + 1, s_pVariants[ubVar]);
-				sprintf(szMsk, "data/team%s%d%s.msk",
-					s_pSideCodes[ubSide], ubNum + 1, s_pVariants[ubVar]);
+				sprintf(szBm, "data/team%s%s%s.bm",
+					s_pSideCodes[ubSide], szNum, s_pVariants[ubVar]);
+				sprintf(szMsk, "data/team%s%s%s.msk",
+					s_pSideCodes[ubSide], szNum, s_pVariants[ubVar]);
 				tDiscSprite **ppSpr = (ubVar == 0) ? &s_pSpriteKit[ubSide][ubNum]
 					: (ubVar == 1) ? &s_pSpriteKitFlash[ubSide][ubNum]
 					: &s_pSpriteKitReady[ubSide][ubNum];
