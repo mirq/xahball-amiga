@@ -1,6 +1,6 @@
 #!/bin/sh
 # XAHBall dist builder: builds the game, assembles the Amiga-ready dist
-# folder, packs LHA + ZIP and pushes both to the FTP server.
+# folder, packs LHA + ZIP + bootable ADF and pushes them to the FTP server.
 # Usage: tools/dist.sh [--no-build] [--no-upload]
 set -e
 cd "$(dirname "$0")/.."   # repo root
@@ -34,14 +34,16 @@ chmod +x dist/xahball/xahball.exe
 
 # Pack LHA (Amiga-native) + ZIP
 cd dist
-rm -f xahball.lha xahball.zip
+rm -f xahball.lha xahball.zip xahball.adf
 lha a xahball.lha xahball > /dev/null
 zip -rq xahball.zip xahball
 echo "packed: xahball.lha $(du -h xahball.lha | cut -f1), xahball.zip $(du -h xahball.zip | cut -f1)"
+../tools/make_adf.sh xahball xahball.adf > /dev/null
+echo "bootable floppy: xahball.adf"
 
 # Push to FTP
 if [ "$DO_UPLOAD" = 1 ]; then
-	for f in xahball.lha xahball.zip; do
+	for f in xahball.lha xahball.zip xahball.adf; do
 		curl -s --ftp-pasv -T "$f" "ftp://$FTP_USER:$FTP_PASS@$FTP_HOST/$FTP_DIR/$f" \
 			&& echo "uploaded: $FTP_DIR/$f"
 	done

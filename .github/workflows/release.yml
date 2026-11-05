@@ -1,6 +1,6 @@
 # XAHBall release build: cross-compiles the m68k binary in the
 # mirqq/amiga-development docker image (Bartman toolchain + ACE host tools
-# environment), packs an LHA + ZIP and publishes them.
+# environment), packs an LHA + ZIP + bootable ADF and publishes them.
 #
 # Triggers:
 #  - every push to main            -> build + artifact
@@ -93,6 +93,11 @@ jobs:
       - name: Pack ZIP (host)
         run: cd out && zip -rq xahball.zip xahball
 
+      - name: Build bootable ADF (host, amitools xdftool)
+        run: |
+          pip install --quiet amitools
+          tools/make_adf.sh out/xahball out/xahball.adf
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -100,6 +105,7 @@ jobs:
           path: |
             out/xahball.lha
             out/xahball.zip
+            out/xahball.adf
 
       - name: Attach to GitHub release (tags only)
         if: github.ref_type == 'tag'
@@ -108,11 +114,12 @@ jobs:
           files: |
             out/xahball.lha
             out/xahball.zip
+            out/xahball.adf
 
       - name: Push to FTP (only when secrets are configured)
         if: ${{ env.FTP_HOST != '' }}
         run: |
-          for f in out/xahball.lha out/xahball.zip; do
+          for f in out/xahball.lha out/xahball.zip out/xahball.adf; do
             curl -s --ftp-pasv -T "$f" \
               "ftp://$FTP_USER:$FTP_PASS@$FTP_HOST/PUBLIC/$(basename "$f")" \
               && echo "uploaded: PUBLIC/$(basename "$f")"
