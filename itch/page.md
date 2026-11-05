@@ -15,7 +15,7 @@ are in this folder; the downloads are built by `tools/dist.sh --no-upload`
 | Kind of project | Downloadable |
 | Release status | Released (or "In development" if you plan more updates soon) |
 | Pricing | No payments, or $0 / donate - "Name your own price" with $0 minimum |
-| Uploads | `xahball.lha` (Amiga-native archive) and `xahball.zip` - leave the Windows/macOS/Linux/Android boxes unticked, these are Amiga files. Optional: add the version (0.4) in the upload's "Version" field |
+| Uploads | `xahball.lha` (Amiga-native archive) and `xahball.zip` - leave the Windows/macOS/Linux/Android boxes unticked, these are Amiga files. Optional: add the version (0.5) in the upload's "Version" field |
 | Description | see `description.html` (open it in a browser, select all, copy, paste into the itch editor) |
 | Genre | Sports |
 | Tags (max 10) | `amiga`, `amiga-500`, `retro`, `football`, `soccer`, `local-multiplayer`, `top-down`, `pixel-art`, `haxball`, `2d` (itch suggests more as you type) |
@@ -74,7 +74,8 @@ Features:
   where the ball is going and put a keeper in goal)
 - 12 national teams with flags and kit colors, away kits when colors clash
 - Match time 1-5 minutes, the clock only runs while the ball is in play
-- Optional rules: kickoff circle lock, ball freeze on goals
+- Optional rules: kickoff circle lock, ball freeze on goals, numbered discs
+  in 1v1
 - Demo mode - leave it alone and the computer plays a match
 - 50 fps on a stock Amiga 500
 

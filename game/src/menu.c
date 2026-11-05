@@ -2,7 +2,7 @@
  * Two pages in one panel over the stadium backdrop:
  *   MAIN  - start, team size, controls (simple presets / custom), CPU level,
  *           match time, rules page, credits, quit
- *   RULES - ball freeze, kickoff lock
+ *   RULES - ball freeze, kickoff lock, 1v1 player numbers
  * Value rows cycle with left/right (fire cycles forward too). Fire on
  * CONTROLS opens the advanced per-slot setup screen. The panel below the
  * rows always summarizes who controls each side.
@@ -63,6 +63,7 @@ typedef enum tMainRow {
 typedef enum tRulesRow {
 	RULES_ROW_FREEZE,
 	RULES_ROW_LOCK,
+	RULES_ROW_NUMBERS,
 	RULES_ROW_BACK,
 	RULES_ROW_COUNT
 } tRulesRow;
@@ -100,6 +101,10 @@ static void menuRowTexts(UBYTE ubRow, const char **pLabel, const char **pValue) 
 			case RULES_ROW_LOCK:
 				*pLabel = "KICKOFF LOCK";
 				*pValue = g_sMatchConfig.ubKickoffLock ? "ON" : "OFF";
+				break;
+			case RULES_ROW_NUMBERS:
+				*pLabel = "1V1 NUMBERS";
+				*pValue = g_sMatchConfig.ubNumbers1v1 ? "ON" : "OFF";
 				break;
 			default:
 				*pLabel = "BACK";
@@ -148,6 +153,7 @@ static const char *menuHint(void) {
 		switch(s_ubRow) {
 			case RULES_ROW_FREEZE: return "BALL STOPS DEAD ON A GOAL";
 			case RULES_ROW_LOCK: return "KEEP OUT OF CIRCLE AT KICKOFF";
+			case RULES_ROW_NUMBERS: return "SHOW NUMBER 1 ON 1V1 PLAYERS";
 			default: return "FIRE: BACK TO MAIN MENU";
 		}
 	}
@@ -209,6 +215,9 @@ static UBYTE menuChangeValue(BYTE bDir) {
 				return 1;
 			case RULES_ROW_LOCK:
 				g_sMatchConfig.ubKickoffLock = !g_sMatchConfig.ubKickoffLock;
+				return 1;
+			case RULES_ROW_NUMBERS:
+				g_sMatchConfig.ubNumbers1v1 = !g_sMatchConfig.ubNumbers1v1;
 				return 1;
 			default:
 				return 0;

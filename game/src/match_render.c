@@ -20,7 +20,7 @@
 
 // Numbered kit sprites, [side][slot 0..2] - the slot number is baked into
 // the sprite so players are distinguishable on the pitch (1v1 loads the
-// plain un-numbered disc into every slot instead)
+// plain un-numbered disc into every slot instead, unless ubNumbers1v1)
 static tDiscSprite *s_pSpriteKit[2][SLOTS_PER_SIDE];
 static tDiscSprite *s_pSpriteKitFlash[2][SLOTS_PER_SIDE];
 static tDiscSprite *s_pSpriteKitReady[2][SLOTS_PER_SIDE];
@@ -116,9 +116,10 @@ void matchRenderLoadSprites(void) {
 	char szBm[32], szMsk[32];
 	for(UBYTE ubSide = 0; ubSide < 2; ++ubSide) {
 		for(UBYTE ubNum = 0; ubNum < SLOTS_PER_SIDE; ++ubNum) {
-			// 1v1: a lone player needs no number - use the plain disc
+			// 1v1: a lone player needs no number - use the plain disc,
+			// unless the rules page asks for numbers in 1v1 too
 			char szNum[2] = {0, 0};
-			if(g_sMatchConfig.ubPlayersPerSide > 1) {
+			if(g_sMatchConfig.ubPlayersPerSide > 1 || g_sMatchConfig.ubNumbers1v1) {
 				szNum[0] = '1' + ubNum;
 			}
 			for(UBYTE ubVar = 0; ubVar < 3; ++ubVar) {

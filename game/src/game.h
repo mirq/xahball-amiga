@@ -79,6 +79,7 @@ typedef struct _tMatchConfig {
 	UBYTE ubTeamRight;
 	UBYTE ubBallFreeze;     // 1: ball freezes on goal instead of rolling in
 	UBYTE ubKickoffLock;    // 1: non-kickoff team barred from center circle
+	UBYTE ubNumbers1v1;     // 1: 1v1 discs show number 1 like 2v2/3v3
 	UBYTE ubAiLevel;        // AI_LEVEL_* (ai.h)
 	UBYTE ubControlPreset;  // index into the team size's presets, or
 	                        // CONTROL_PRESET_CUSTOM (see controls.h)

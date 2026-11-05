@@ -42,6 +42,7 @@ tMatchConfig g_sMatchConfig = {
 	.ubTeamRight = 1,
 	.ubBallFreeze = 0, // ball rolls into the net by default
 	.ubKickoffLock = 1, // kickoff circle rule on by default
+	.ubNumbers1v1 = 0, // plain discs in 1v1 unless enabled on the rules page
 	.ubAiLevel = AI_LEVEL_NORMAL,
 	.ubControlPreset = 0, // applied in genericCreate
 };

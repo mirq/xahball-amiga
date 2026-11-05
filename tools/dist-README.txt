@@ -50,6 +50,8 @@ Main menu
     (default OFF - it rolls into the net)
     KICKOFF LOCK: ON keeps the other team out of the center circle until
     the kickoff team touches the ball (default ON)
+    1V1 NUMBERS: ON shows the number 1 on both players in 1 vs 1, like
+    the numbered discs in 2 vs 2 / 3 vs 3 (default OFF - plain discs)
 
 Leave the title screen or the menu alone for a while and a demo match
 starts - any key or fire button brings you back.
